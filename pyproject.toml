@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "predwordimp"
+version = "0.0.1"
+dependencies = [
+    # "requests",
+]
+requires-python = ">=3.10"
+readme = "README.md"
+classifiers = [
+  "Programming Language :: Python :: 3"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]  # ["."] by default
+include = ["predwordimp*"]  # ["*"] by default
+# exclude = ["predwordimp.tests*"]  # empty by default
+namespaces = false
+
+[project.urls]
+Homepage = "https://github.com/adam-osusky/predicting-word-importance"
+Documentation = "https://github.com/adam-osusky/predicting-word-importance"
