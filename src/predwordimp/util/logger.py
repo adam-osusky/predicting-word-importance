@@ -1,8 +1,13 @@
 import logging
 
 
-def get_logger(log_level=logging.INFO) -> logging.Logger:
-    logger = logging.getLogger(__name__)
+def get_logger(
+    module_name: str | None = None, log_level: int = logging.INFO
+) -> logging.Logger:
+    if module_name is None:
+        module_name = __name__
+
+    logger = logging.getLogger(module_name)
     logger.setLevel(log_level)
 
     console_handler = logging.StreamHandler()
