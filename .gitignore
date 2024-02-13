@@ -1,5 +1,6 @@
 logs/
-src/predwordimp/testing
+src/predwordimp/debug
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
