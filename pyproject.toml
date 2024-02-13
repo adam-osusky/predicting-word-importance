@@ -7,6 +7,8 @@ name = "predwordimp"
 version = "0.0.1"
 dependencies = [
     # "requests",
+    "tqdm",
+    "datasets>=2.17",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
@@ -23,3 +25,8 @@ namespaces = false
 [project.urls]
 Homepage = "https://github.com/adam-osusky/predicting-word-importance"
 Documentation = "https://github.com/adam-osusky/predicting-word-importance"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+]
