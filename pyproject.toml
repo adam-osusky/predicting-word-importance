@@ -6,9 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "predwordimp"
 version = "0.0.1"
 dependencies = [
-    # "requests",
     "tqdm",
     "datasets>=2.17",
+    "mosestokenizer>=1.2.1",
 ]
 requires-python = ">=3.10"
 readme = "README.md"

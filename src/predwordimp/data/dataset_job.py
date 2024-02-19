@@ -10,6 +10,7 @@ from datasets import (
     Dataset,
     load_dataset,
 )
+from mosestokenizer import MosesDetokenizer
 from tqdm import tqdm
 
 from predwordimp.util.job import ConfigurableJob
@@ -35,18 +36,24 @@ class WikiTextDsJob(ConfigurableJob):
     num_proc: int | None = None
     insert_rate: float = 0.5
     max_size: int | None = None
-    job_version: str = "0.1"
+    job_version: str = "0.2"
     debug: bool = False
 
     @staticmethod
-    def preprocess_text(sample: Dict[str, Any]) -> Dict[str, Any]:
-        """Remove tokenization artefacts of moses tokenizer."""
+    def merge_intratokens(sample: Dict[str, Any]) -> Dict[str, Any]:
+        """Moses tokenizer tokenizes intra special characters with @<special-char>@ tagging."""
         if len(sample["text"]) != 0:
             sample["text"] = re.sub(
-                pattern=r"@(.)@",
+                pattern=r" @(.)@ ",
                 repl=lambda match: match.group(1),
                 string=sample["text"],
             )
+        return sample
+
+    @staticmethod
+    def detokenize(sample: Dict[str, Any]) -> Dict[str, Any]:
+        with MosesDetokenizer("en") as detokenize:
+            sample["text"] = detokenize(sample["text"].split())
         return sample
 
     def preprocess_dataset(self, ds: Dataset) -> Dataset:
@@ -56,7 +63,8 @@ class WikiTextDsJob(ConfigurableJob):
             and not sample["text"].startswith(" = "),
             num_proc=self.num_proc,
         )
-        ds = ds.map(function=WikiTextDsJob.preprocess_text, num_proc=self.num_proc)
+        ds = ds.map(function=WikiTextDsJob.merge_intratokens, num_proc=self.num_proc)
+        ds = ds.map(function=WikiTextDsJob.detokenize, num_proc=self.num_proc)
         return ds
 
     def insert_words(self, sample: Dict[str, Any], vocab_ds: Dataset) -> dict[str, Any]:
@@ -78,7 +86,6 @@ class WikiTextDsJob(ConfigurableJob):
         new_words = []
         # insert word before original selcted word position
         for i, w in enumerate(words):
-            # new_words.append(w)
             if i in insertions:
                 new_words.append(insertions[i])
                 targets[i + inserted] = 1
@@ -105,10 +112,11 @@ class WikiTextDsJob(ConfigurableJob):
         logger = get_logger(__name__)
         data_dir = os.path.join("./data/wikitext/", self.job_name)
         os.makedirs(data_dir, exist_ok=True)
-        print(__name__)
-        logger.info(
-            f"Started WikiText dataset creation job with this args:\n{self.get_config()}"
-        )
+
+        config = self.get_config()
+        with open(os.path.join(data_dir, "config.json"), "w") as file:
+            file.write(config)
+        logger.info(f"Started WikiText dataset creation job with this args:\n{config}")
 
         logger.info("Loading full dataset for random words.")
         self.full_ds = load_dataset(
@@ -121,8 +129,6 @@ class WikiTextDsJob(ConfigurableJob):
         self.full_ds = self.preprocess_dataset(self.full_ds)  # type: ignore
 
         for splt in ["train", "validation", "test"]:
-            # for splt in ["train"]:
-
             logger.info(f"Loading the {splt} part of the dataset.")
             dataset = load_dataset(
                 "wikitext", "wikitext-103-raw-v1", split=splt, streaming=False
