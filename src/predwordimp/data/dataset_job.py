@@ -16,9 +16,9 @@ from tqdm import tqdm
 from predwordimp.util.job import ConfigurableJob
 from predwordimp.util.logger import get_logger
 
-# TODO: remove
-test_len = 1000
-start = 100
+# for unit tests and debugging
+test_len = 3
+start = 10
 test_range = range(start, start + test_len)
 
 
