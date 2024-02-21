@@ -1,3 +1,4 @@
+import concurrent.futures
 import json
 import os
 import random
@@ -17,7 +18,7 @@ from predwordimp.util.job import ConfigurableJob
 from predwordimp.util.logger import get_logger
 
 # for unit tests and debugging
-test_len = 3
+test_len = 100
 start = 10
 test_range = range(start, start + test_len)
 
@@ -36,7 +37,7 @@ class WikiTextDsJob(ConfigurableJob):
     num_proc: int | None = None
     insert_rate: float = 0.5
     max_size: int | None = None
-    job_version: str = "0.2"
+    job_version: str = "0.3"
     debug: bool = False
 
     @staticmethod
@@ -142,14 +143,24 @@ class WikiTextDsJob(ConfigurableJob):
             logger.info(f"Started insertion process for the {splt} part.")
             count = 0
             with open(os.path.join(data_dir, f"{splt}.jsonl"), "w") as jsn:
-                for sample in tqdm(iterable=dataset):
-                    example = self.insert_words(sample, self.full_ds)
+                with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=self.num_proc
+                ) as executor:
+                    futures = [
+                        executor.submit(self.insert_words, sample, self.full_ds)
+                        for sample in dataset
+                    ]
 
-                    json.dump(example, jsn)
-                    jsn.write("\n")  # jsonLINES
-                    count += 1
-                    if self.max_size and count >= self.max_size:
-                        break
+                    for future in tqdm(concurrent.futures.as_completed(futures)):
+                        try:
+                            example = future.result()
+                            json.dump(example, jsn)
+                            jsn.write("\n")  # jsonLINES
+                            count += 1
+                            if self.max_size and count >= self.max_size:
+                                break
+                        except Exception as e:
+                            logger.error(f"Error during word insertion: {e}")
 
             logger.info(f"Finished insertion process for the {splt} part.")
 
