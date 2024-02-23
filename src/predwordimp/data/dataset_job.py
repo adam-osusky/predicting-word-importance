@@ -4,15 +4,23 @@ import os
 import random
 import re
 from dataclasses import dataclass
-from typing import Any, Dict
+from logging import Logger
+from typing import Any, Dict, List
 
 import numpy as np
+import torch
 from datasets import (
     Dataset,
     load_dataset,
 )
 from mosestokenizer import MosesDetokenizer
 from tqdm import tqdm
+from transformers import (
+    AutoModelForMaskedLM,
+    AutoTokenizer,
+    PreTrainedTokenizer,
+    PreTrainedTokenizerFast,
+)
 
 from predwordimp.util.job import ConfigurableJob
 from predwordimp.util.logger import get_logger
@@ -23,12 +31,14 @@ start = 10
 test_range = range(start, start + test_len)
 
 
-def get_random_word(ds: Dataset) -> str:
-    words = []
-    while len(words) == 0:
-        sample = ds[random.randint(a=0, b=len(ds) - 1)]
-        words = sample["text"].split()
-    return random.choice(seq=words)
+def load_wiki_ds(split: str) -> Dataset:
+    dataset = load_dataset(
+        path="wikitext",
+        name="wikitext-103-raw-v1",
+        split=split,
+        streaming=False,
+    )
+    return dataset  # type: ignore
 
 
 @dataclass
@@ -36,8 +46,9 @@ class WikiTextDsJob(ConfigurableJob):
     seed: int = 69
     num_proc: int | None = None
     insert_rate: float = 0.5
+    insert_model: str = "random"
     max_size: int | None = None
-    job_version: str = "0.3"
+    job_version: str = "1.0"
     debug: bool = False
 
     @staticmethod
@@ -68,7 +79,111 @@ class WikiTextDsJob(ConfigurableJob):
         ds = ds.map(function=WikiTextDsJob.detokenize, num_proc=self.num_proc)
         return ds
 
-    def insert_words(self, sample: Dict[str, Any], vocab_ds: Dataset) -> dict[str, Any]:
+    def get_random_word(self) -> str:
+        """Select uniformly random word from corpus."""
+
+        if not self.full_ds:
+            raise RuntimeError("For random word insertion is needed full dataset.")
+
+        words = []
+        while len(words) == 0:
+            sample = self.full_ds[random.randint(a=0, b=len(self.full_ds) - 1)]
+            words = sample["text"].split()
+
+        return random.choice(seq=words)
+
+    def insert_words(self, sample: Dict[str, Any]) -> dict[str, Any]:
+        """Insert new words into the sample according to insertion method."""
+
+        insertions_targets = self.get_insertions_targets(sample)
+
+        if self.insert_model == "random":
+            insertions_targets.pop("insert_positions")
+            return insertions_targets
+
+        else:
+            filled_new_words = self.fill_mask(
+                insertions_targets["words"], insertions_targets.pop("insert_positions")
+            )
+            insertions_targets["words"] = filled_new_words
+            return insertions_targets
+
+    def fill_mask(self, words: List[str], insert_positions: set[int]) -> List[str]:
+        """Fill-mask task.
+        For list of strings use lm model to predict mask tokens and fill the predictions.
+
+        For prediction ignore neighbouring tokens. Example: [token1, MASK_TOKEN ,token2] -> from predictions removes token1 and token2.
+
+        Also intra tokens (such as ##n, ##ion...) are ignored from predictions.
+        """
+
+        inputs = self.lm_tokenizer(words, return_tensors="pt", is_split_into_words=True)
+        mask_token_index = torch.where(
+            inputs["input_ids"] == self.lm_tokenizer.mask_token_id
+        )[1]
+
+        logits = self.lm(**inputs).logits
+        mask_token_logits = logits[0, mask_token_index, :]
+        mask_token_logits[:, self.intra_word_mask] = -float(
+            "inf"
+        )  # ignore intra word tokens
+
+        neighbor_indices = [mask_token_index - 1, mask_token_index + 1]
+        for i in range(len(neighbor_indices)):
+            neighbours = neighbor_indices[i]
+            for j in range(len(mask_token_index)):
+                neighbours_token_ids = inputs["input_ids"][0, neighbours[j]]
+                mask_token_logits[j, neighbours_token_ids] = -float("inf")
+
+        preds = torch.argmax(mask_token_logits, dim=1)
+        word_preds = self.lm_tokenizer.convert_ids_to_tokens(preds)
+
+        for insert_idx, txt_idx in enumerate(insert_positions):
+            words[txt_idx] = word_preds[insert_idx]
+
+        return words
+
+    def load_lm(self) -> None:
+        self.lm_tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast = (
+            AutoTokenizer.from_pretrained(self.insert_model)
+        )
+        self.lm = AutoModelForMaskedLM.from_pretrained(self.insert_model)
+
+        # get mask for intra-word tokens
+        vocab = self.lm_tokenizer.get_vocab()
+        intra_word_tokens = [
+            token for token in vocab.keys() if token.startswith("##")
+        ]  # specific to bert tokenizers
+
+        vocab_size = self.lm_tokenizer.vocab_size
+        self.intra_word_mask = [
+            token in intra_word_tokens
+            for token in self.lm_tokenizer.convert_ids_to_tokens(
+                list(range(vocab_size))
+            )
+        ]
+
+    def insert_str(self) -> str:
+        """What string to insert at first in the insertion process."""
+
+        if self.insert_model == "random":
+            return self.get_random_word()
+        else:
+            return self.lm_tokenizer.mask_token
+
+    def get_insertions_targets(self, sample: Dict[str, Any]) -> dict[str, Any]:
+        """
+        Helper function for insertion. Uniformly selects positions for insertions
+        without repetition. Positions for insertions are spaces before original words.
+        So consecutive insertion is not possible. Also one extra position for the end
+        of the text.
+
+        From the text is created list of words by whitespace spliting.
+        """
+
+        if len(sample["text"]) == 0:
+            raise RuntimeError("An empty sample for insertion!")
+
         words = sample["text"].split()
         num_words = len(words)
         num_to_insert = int(num_words * self.insert_rate)
@@ -79,17 +194,21 @@ class WikiTextDsJob(ConfigurableJob):
 
         insertions = {}
         for i in insert_idxs:
-            insertions[i] = get_random_word(ds=vocab_ds)
+            insertions[i] = self.insert_str()
 
         targets = [0] * (num_words + num_to_insert)
 
         inserted = 0
         new_words = []
+        insert_positions = set()
+
         # insert word before original selcted word position
         for i, w in enumerate(words):
             if i in insertions:
                 new_words.append(insertions[i])
-                targets[i + inserted] = 1
+                idx = i + inserted
+                targets[idx] = 1
+                insert_positions.add(idx)
                 inserted += 1
             new_words.append(w)
 
@@ -97,14 +216,27 @@ class WikiTextDsJob(ConfigurableJob):
         i = num_words
         if i in insertions:
             new_words.append(insertions[i])
-            targets[i + inserted] = 1
+            idx = i + inserted
+            targets[idx] = 1
+            insert_positions.add(idx)
             inserted += 1
 
-        if len(new_words) == 0:
-            raise RuntimeError(f"No new words inserted. /n{sample}")
+        new_sample = {
+            "words": new_words,
+            "target": targets,
+            "insert_positions": insert_positions,
+        }
 
-        new_sample = {"words": new_words, "target": targets}
         return new_sample
+
+    def load_full_ds(self, log: Logger) -> None:
+        log.info("Loading full dataset for random words.")
+        self.full_ds = load_wiki_ds("all")
+        if self.debug:
+            self.full_ds = self.full_ds.select(test_range)
+
+        log.info("Preprocessing the dataset for random words")
+        self.full_ds = self.preprocess_dataset(self.full_ds)
 
     def run(self) -> None:
         np.random.seed(self.seed)
@@ -119,23 +251,23 @@ class WikiTextDsJob(ConfigurableJob):
             file.write(config)
         logger.info(f"Started WikiText dataset creation job with this args:\n{config}")
 
-        logger.info("Loading full dataset for random words.")
-        self.full_ds = load_dataset(
-            path="wikitext", name="wikitext-103-raw-v1", split="all", streaming=False
-        )  # type: ignore
-        if self.debug:
-            self.full_ds = self.full_ds.select(test_range)  # type: ignore
-
-        logger.info("Preprocessing the dataset for random words")
-        self.full_ds = self.preprocess_dataset(self.full_ds)  # type: ignore
+        if self.insert_model != "random":
+            logger.info(
+                f"Words will be inserted with {self.insert_model} language model."
+            )
+            logger.info("Loading language model and tokenizer.")
+            self.load_lm()
+            self.full_ds = None
+        else:
+            logger.info("Words will be inserted randomly from corpus.")
+            self.lm = None
+            self.load_full_ds(logger)
 
         for splt in ["train", "validation", "test"]:
             logger.info(f"Loading the {splt} part of the dataset.")
-            dataset = load_dataset(
-                "wikitext", "wikitext-103-raw-v1", split=splt, streaming=False
-            )
+            dataset = load_wiki_ds(splt)
             if self.debug:
-                dataset = dataset.select(test_range)  # type: ignore
+                dataset = dataset.select(test_range)
 
             logger.info(f"Preprocessing the {splt} part of the dataset.")
             dataset = self.preprocess_dataset(dataset)
@@ -147,8 +279,7 @@ class WikiTextDsJob(ConfigurableJob):
                     max_workers=self.num_proc
                 ) as executor:
                     futures = [
-                        executor.submit(self.insert_words, sample, self.full_ds)
-                        for sample in dataset
+                        executor.submit(self.insert_words, sample) for sample in dataset
                     ]
 
                     for future in tqdm(concurrent.futures.as_completed(futures)):
