@@ -4,9 +4,11 @@ import sys
 
 from predwordimp.data.dataset_job import WikiTextDsJob
 from predwordimp.util.job import ConfigurableJob
+from predwordimp.training.train import TrainJob
 
 job_classes: dict[str, type[ConfigurableJob]] = {
     "WikiTextDsJob": WikiTextDsJob,
+    "TrainJob": TrainJob,
 }
 
 if __name__ == "__main__":
