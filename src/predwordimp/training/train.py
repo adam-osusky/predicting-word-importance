@@ -4,6 +4,7 @@ from typing import ClassVar
 
 import evaluate
 import numpy as np
+import torch
 import transformers
 from datasets import Dataset, load_dataset
 from evaluate import EvaluationModule
@@ -149,6 +150,9 @@ class TrainJob(ConfigurableJob):
             id2label=TrainJob.id2label,
             label2id=TrainJob.label2id,
         )
+
+        for i in range(torch.cuda.device_count()):
+            logger.info(f"GPU: {torch.cuda.get_device_properties(i)}")
 
         training_args = TrainingArguments(
             output_dir=os.path.join(data_dir, self.job_name),
