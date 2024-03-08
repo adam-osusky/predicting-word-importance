@@ -3,7 +3,6 @@ import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Self
 
 
 @dataclass
@@ -22,7 +21,7 @@ class ConfigurableJob(ABC):
         return json.dumps(self.__dict__, indent=4)
 
     @classmethod
-    def from_dict(cls, data: dict) -> Self:
+    def from_dict(cls, data: dict) -> "ConfigurableJob":
         """
         Create an instance of the class from a dict.
         """
