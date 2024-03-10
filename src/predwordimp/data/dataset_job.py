@@ -27,7 +27,7 @@ from predwordimp.util.logger import get_logger
 
 # for unit tests and debugging
 test_len = 100
-start = 10
+start = 100  # for case with sample longer than 512
 test_range = range(start, start + test_len)
 
 
@@ -48,7 +48,7 @@ class WikiTextDsJob(ConfigurableJob):
     insert_rate: float = 0.5
     insert_model: str = "random"
     max_size: int | None = None
-    job_version: str = "1.0"
+    job_version: str = "1.1"
     debug: bool = False
 
     @staticmethod
@@ -110,32 +110,50 @@ class WikiTextDsJob(ConfigurableJob):
 
     def fill_mask(self, words: List[str], insert_positions: set[int]) -> List[str]:
         """Fill-mask task.
-        For list of strings use lm model to predict mask tokens and fill the predictions.
+        For list of strings (words delimitted by whitespace) use lm model to predict mask
+        tokens and fill the predictions.
 
-        For prediction ignore neighbouring tokens. Example: [token1, MASK_TOKEN ,token2] -> from predictions removes token1 and token2.
+        For prediction ignore neighbouring tokens. Example: [token1, MASK_TOKEN ,token2] ->
+        from predictions removes token1 and token2.
 
         Also intra tokens (such as ##n, ##ion...) are ignored from predictions.
+
+        In case of the tokenized sequence longer than model's max, the sequence will be
+        splitted with no strides.
         """
 
-        inputs = self.lm_tokenizer(words, return_tensors="pt", is_split_into_words=True)
-        mask_token_index = torch.where(
+        inputs = self.lm_tokenizer(
+            words,
+            return_tensors="pt",
+            is_split_into_words=True,
+            truncation=True,
+            return_overflowing_tokens=True,
+            padding="longest",
+        )
+        inputs.pop("overflow_to_sample_mapping", None)
+
+        masked_idxs = torch.where(
             inputs["input_ids"] == self.lm_tokenizer.mask_token_id
-        )[1]
+        )
 
         logits = self.lm(**inputs).logits
-        mask_token_logits = logits[0, mask_token_index, :]
-        mask_token_logits[:, self.intra_word_mask] = -float(
-            "inf"
-        )  # ignore intra word tokens
+        fill_logits = logits[masked_idxs]
+        fill_logits[:, self.intra_word_mask] = -float("inf")  # ignore intra word tokens
 
-        neighbor_indices = [mask_token_index - 1, mask_token_index + 1]
+        stride_idxs = masked_idxs[0]
+        stride_masked_idxs = masked_idxs[1]
+        neighbor_indices = [
+            stride_masked_idxs - 1,
+            stride_masked_idxs + 1,
+        ]  # BOS and EOS so no need to worry out of bounds
+
+        # ignore neighbouring tokens
         for i in range(len(neighbor_indices)):
             neighbours = neighbor_indices[i]
-            for j in range(len(mask_token_index)):
-                neighbours_token_ids = inputs["input_ids"][0, neighbours[j]]
-                mask_token_logits[j, neighbours_token_ids] = -float("inf")
+            neighbours_token_ids = inputs["input_ids"][stride_idxs, neighbours]
+            fill_logits[:, neighbours_token_ids] = -float("inf")
 
-        preds = torch.argmax(mask_token_logits, dim=1)
+        preds = torch.argmax(fill_logits, dim=1)
         word_preds = self.lm_tokenizer.convert_ids_to_tokens(preds)
 
         for insert_idx, txt_idx in enumerate(insert_positions):
