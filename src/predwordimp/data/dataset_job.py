@@ -48,7 +48,7 @@ class WikiTextDsJob(ConfigurableJob):
     insert_rate: float = 0.5
     insert_model: str = "random"
     max_size: int | None = None
-    job_version: str = "1.1"
+    job_version: str = "1.2"
     debug: bool = False
 
     @staticmethod
@@ -294,7 +294,7 @@ class WikiTextDsJob(ConfigurableJob):
             count = 0
             with open(os.path.join(data_dir, f"{splt}.jsonl"), "w") as jsn:
                 with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=self.num_proc
+                    max_workers=self.num_proc if self.insert_model == "random" else 1
                 ) as executor:
                     futures = [
                         executor.submit(self.insert_words, sample) for sample in dataset
