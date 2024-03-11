@@ -29,7 +29,7 @@ class TrainJob(ConfigurableJob):
     dataset_dir: str
 
     seed: int = 69
-    job_version: str = "0.1"
+    job_version: str = "0.2"
 
     num_proc: int = 0
     hf_access_token: str | None = None
@@ -38,6 +38,7 @@ class TrainJob(ConfigurableJob):
     epochs: int = 1
     wd: float = 0.0
     warmup_steps: int = 1000
+    stride: int = 128
 
     logging_steps: int = 100
     save_steps: int = 500
@@ -84,12 +85,16 @@ class TrainJob(ConfigurableJob):
             samples["words"],
             truncation=True,
             return_overflowing_tokens=True,
-            stride=128,
+            stride=self.stride,
             is_split_into_words=True,
+            return_tensors="np",
         )
 
         labels = []
-        for i, label in enumerate(samples["target"]):
+        for i in range(tokenized_inputs["overflow_to_sample_mapping"].shape[0]):
+            sample_idx = tokenized_inputs["overflow_to_sample_mapping"][i]
+            label = samples["target"][sample_idx]
+
             word_ids = tokenized_inputs.word_ids(
                 batch_index=i
             )  # Map tokens to their respective word.
@@ -116,14 +121,22 @@ class TrainJob(ConfigurableJob):
             data_files=os.path.join(self.dataset_dir, "train.jsonl"),
             split="train",
         )
-        train_ds = train_ds.map(self.tokenize_and_align_labels, batched=True)
+        train_ds = train_ds.map(
+            self.tokenize_and_align_labels,
+            batched=True,
+            remove_columns=train_ds.column_names,
+        )
 
         val_ds = load_dataset(
             "json",
             data_files=os.path.join(self.dataset_dir, "validation.jsonl"),
             split="train",
         )
-        val_ds = val_ds.map(self.tokenize_and_align_labels, batched=True)
+        val_ds = val_ds.map(
+            self.tokenize_and_align_labels,
+            batched=True,
+            remove_columns=val_ds.column_names,
+        )
 
         return train_ds, val_ds  # type: ignore
 
