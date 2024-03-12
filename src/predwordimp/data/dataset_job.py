@@ -45,11 +45,17 @@ def load_wiki_ds(split: str) -> Dataset:
 class WikiTextDsJob(ConfigurableJob):
     seed: int = 69
     num_proc: int | None = None
+    num_threads: int = 1
     insert_rate: float = 0.5
     insert_model: str = "random"
     max_size: int | None = None
     job_version: str = "1.2"
     debug: bool = False
+
+    def __post_init__(self) -> None:
+        self.device = "cpu"
+        if torch.cuda.is_available():
+            self.device = "cuda"
 
     @staticmethod
     def merge_intratokens(sample: Dict[str, Any]) -> Dict[str, Any]:
@@ -136,7 +142,10 @@ class WikiTextDsJob(ConfigurableJob):
             inputs["input_ids"] == self.lm_tokenizer.mask_token_id
         )
 
+        inputs.to(self.device)
         logits = self.lm(**inputs).logits
+        logits.to("cpu")
+
         fill_logits = logits[masked_idxs]
         fill_logits[:, self.intra_word_mask] = -float("inf")  # ignore intra word tokens
 
@@ -166,6 +175,8 @@ class WikiTextDsJob(ConfigurableJob):
             AutoTokenizer.from_pretrained(self.insert_model)
         )
         self.lm = AutoModelForMaskedLM.from_pretrained(self.insert_model)
+        self.lm.to(self.device)
+        self.lm.eval()
 
         # get mask for intra-word tokens
         vocab = self.lm_tokenizer.get_vocab()
@@ -294,7 +305,7 @@ class WikiTextDsJob(ConfigurableJob):
             count = 0
             with open(os.path.join(data_dir, f"{splt}.jsonl"), "w") as jsn:
                 with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=self.num_proc if self.insert_model == "random" else 1
+                    max_workers=self.num_threads
                 ) as executor:
                     futures = [
                         executor.submit(self.insert_words, sample) for sample in dataset
