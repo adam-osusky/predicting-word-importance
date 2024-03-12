@@ -31,7 +31,7 @@ class TrainJob(ConfigurableJob):
     seed: int = 69
     job_version: str = "0.2"
 
-    num_proc: int = 0
+    num_proc: int = 1
     hf_access_token: str | None = None
     lr: float = 2e-5
     batch_size: int = 64
@@ -125,6 +125,7 @@ class TrainJob(ConfigurableJob):
             self.tokenize_and_align_labels,
             batched=True,
             remove_columns=train_ds.column_names,
+            num_proc=self.num_proc,
         )
 
         val_ds = load_dataset(
@@ -136,6 +137,7 @@ class TrainJob(ConfigurableJob):
             self.tokenize_and_align_labels,
             batched=True,
             remove_columns=val_ds.column_names,
+            num_proc=self.num_proc,
         )
 
         return train_ds, val_ds  # type: ignore
@@ -181,7 +183,7 @@ class TrainJob(ConfigurableJob):
             hub_token=self.hf_access_token,
             warmup_steps=self.warmup_steps,
             seed=self.seed,
-            dataloader_num_workers=self.num_proc,
+            dataloader_num_workers=self.num_proc if self.num_proc > 1 else 0,
             run_name=self.job_name,
             logging_dir=os.path.join(data_dir, "tensorboard"),
             logging_strategy="steps",
