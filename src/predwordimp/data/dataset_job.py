@@ -49,7 +49,7 @@ class WikiTextDsJob(ConfigurableJob):
     insert_rate: float = 0.5
     insert_model: str = "random"
     max_size: int | None = None
-    job_version: str = "1.2"
+    job_version: str = "1.3"
     debug: bool = False
 
     def __post_init__(self) -> None:

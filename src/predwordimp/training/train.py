@@ -29,7 +29,7 @@ class TrainJob(ConfigurableJob):
     dataset_dir: str
 
     seed: int = 69
-    job_version: str = "0.2"
+    job_version: str = "0.3"
 
     num_proc: int = 1
     hf_access_token: str | None = None
