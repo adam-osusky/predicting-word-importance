@@ -29,7 +29,7 @@ class TrainJob(ConfigurableJob):
     dataset_dir: str
 
     seed: int = 69
-    job_version: str = "0.4"
+    job_version: str = "0.5"
 
     num_proc: int = 1
     hf_access_token: str | None = None
@@ -153,7 +153,7 @@ class TrainJob(ConfigurableJob):
         config = self.get_config()
         with open(os.path.join(data_dir, "train_config.json"), "w") as file:
             file.write(config)
-        logger.info(f"Started WikiText dataset creation job with this args:\n{config}")
+        logger.info(f"Started train job with this args:\n{config}")
 
         logger.info(f"Loading and preprocessing dataset {self.dataset_dir}")
         self.load_tokenizer()
