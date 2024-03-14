@@ -29,7 +29,7 @@ class TrainJob(ConfigurableJob):
     dataset_dir: str
 
     seed: int = 69
-    job_version: str = "0.3"
+    job_version: str = "0.4"
 
     num_proc: int = 1
     hf_access_token: str | None = None
@@ -39,6 +39,7 @@ class TrainJob(ConfigurableJob):
     wd: float = 0.0
     warmup_steps: int = 1000
     stride: int = 128
+    gradient_accumulation_steps: int = 1
 
     logging_steps: int = 100
     save_steps: int = 500
@@ -190,6 +191,7 @@ class TrainJob(ConfigurableJob):
             save_steps=self.save_steps,
             eval_steps=self.eval_steps,
             logging_steps=self.logging_steps,
+            gradient_accumulation_steps=self.gradient_accumulation_steps,
         )
 
         data_collator = DataCollatorForTokenClassification(
