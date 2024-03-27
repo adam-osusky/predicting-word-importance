@@ -29,7 +29,7 @@ class TrainJob(ConfigurableJob):
     dataset_dir: str
 
     seed: int = 69
-    job_version: str = "0.5"
+    job_version: str = "0.6"
 
     num_proc: int = 1
     hf_access_token: str | None = None
@@ -44,6 +44,8 @@ class TrainJob(ConfigurableJob):
     logging_steps: int = 100
     save_steps: int = 500
     eval_steps: int = 500
+    save_strategy: str = "steps"
+    save_total_limit: int = 1
 
     seqeval: ClassVar[EvaluationModule] = evaluate.load("seqeval")
     id2label: ClassVar[dict[int, str]] = {0: "not inserted", 1: "inserted"}
@@ -178,9 +180,8 @@ class TrainJob(ConfigurableJob):
             num_train_epochs=self.epochs,
             weight_decay=self.wd,
             evaluation_strategy="steps",
-            save_strategy="steps",
-            save_total_limit=1,
-            # load_best_model_at_end=True,
+            save_strategy=self.save_strategy,
+            save_total_limit=self.save_total_limit,
             hub_token=self.hf_access_token,
             warmup_steps=self.warmup_steps,
             seed=self.seed,
