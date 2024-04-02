@@ -1,12 +1,11 @@
-from dataclasses import dataclass
 import math
 import os
 import random
+from dataclasses import dataclass
 
 import numpy as np
-import numpy.typing as npt
-from datasets import load_dataset, Dataset
 import torch
+from datasets import Dataset, load_dataset
 from transformers import AutoModelForTokenClassification, AutoTokenizer
 from transformers.tokenization_utils_base import BatchEncoding
 
@@ -84,8 +83,11 @@ class EvalWordImp(ConfigurableJob):
         for batch_idx, pred in enumerate(sorted_indices):
             ranking = []
             word_ids = tokenized_inputs.word_ids(batch_idx)
-            print(word_ids)
-            limit = EvalWordImp.rank_limit(rank_limit, pred.shape[0])
+            num_words = max(wi for wi in word_ids if wi is not None) + 1
+            print("num_words :", num_words)
+            print("word_ids :", word_ids)
+            limit = EvalWordImp.rank_limit(rank_limit, num_words)
+            print("limit :", limit, rank_limit, num_words)
 
             for index in pred:
                 word_id = word_ids[index]
@@ -98,18 +100,22 @@ class EvalWordImp(ConfigurableJob):
                 if len(ranking) >= limit:
                     break
 
-            rankings.append((ranking, max(wi for wi in word_ids if wi is not None) + 1))
+            rankings.append((ranking, num_words))
 
         return rankings
 
     @staticmethod
-    def ordering2ranks(orderings: list[tuple[list[int], int]]) -> list[list[int]]:
+    def ordering2ranks(
+        orderings: list[tuple[list[int], int]], rank_limit: float | int
+    ) -> list[list[int]]:
         ranks = []
 
         for batch_idx, ordering_tuple in enumerate(orderings):
+            print("ordering_tuple :", ordering_tuple)
             ordering = ordering_tuple[0]
             num_words = ordering_tuple[1]
             rank = np.ones(num_words) * len(ordering)
+            print("rank ones :", rank)
 
             for i, pos in enumerate(ordering):
                 rank[pos] = i
@@ -123,7 +129,7 @@ class EvalWordImp(ConfigurableJob):
         logits: torch.Tensor,
         tokenized_inputs: BatchEncoding,
         rank_limit: float | int,
-    ) -> torch.Tensor:
+    ) -> list[list[int]]:
         logits = torch.softmax(logits, dim=-1)
         logits = logits * tokenized_inputs.data["attention_mask"][:, :, None]
         logits = logits[:, :, 0]  # keep prob of not inserted
@@ -132,13 +138,13 @@ class EvalWordImp(ConfigurableJob):
         logits = logits * (1 - subword_mask)  # mask subword tokens
         sorted_indices = torch.argsort(logits, dim=-1, descending=True)
 
-        print(sorted_indices)
+        print("sorted_indices :", sorted_indices)
 
         orderings = EvalWordImp.sorted2ordering(
             sorted_indices, tokenized_inputs, rank_limit
         )
-        print(orderings)
-        ranks = EvalWordImp.ordering2ranks(orderings)
+        print("orderings :", orderings)
+        ranks = EvalWordImp.ordering2ranks(orderings, rank_limit)
 
         return ranks
 
