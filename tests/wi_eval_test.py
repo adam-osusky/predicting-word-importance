@@ -1,3 +1,4 @@
+import math
 from typing import Any
 
 import pytest
@@ -5,8 +6,6 @@ import torch
 from predwordimp.eval.wi_eval import EvalWordImp
 from transformers import AutoTokenizer
 from transformers.tokenization_utils_base import BatchEncoding
-
-from predwordimp.util.job import ConfigurableJob
 
 
 @pytest.fixture
@@ -64,13 +63,41 @@ def eval_job() -> EvalWordImp:
     return EvalWordImp.from_dict(d)
 
 
-def test_logits2ranks(logits: torch.Tensor, tokenized_inputs: BatchEncoding, eval_job: EvalWordImp) -> None:
-    ranks = eval_job.logits2ranks(logits, tokenized_inputs, 4)
+def get_rank_limit(limit: int | float, length: int) -> int:
+    if isinstance(limit, int):
+        return limit
+    elif isinstance(limit, float):
+        return math.ceil(length * limit)
 
+
+@pytest.mark.parametrize("rank_limit", [1, 2, 3, 0.1, 0.25, 0.5, 0.75])
+def test_logits2ranks(
+    logits: torch.Tensor,
+    tokenized_inputs: BatchEncoding,
+    eval_job: EvalWordImp,
+    ds: dict[str, Any],
+    rank_limit: int | float,
+) -> None:
+    print("RANK LIMIT :", rank_limit)
+    ranks = eval_job.logits2ranks(logits, tokenized_inputs, rank_limit)
+    print("ranks :", ranks)
+
+    print("==========")
     tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-uncased")
-    tokens = tokenizer.convert_ids_to_tokens(tokenized_inputs['input_ids'][0])
+    tokens = tokenizer.convert_ids_to_tokens(tokenized_inputs["input_ids"][0])
     print(tokens)
-    tokens = tokenizer.convert_ids_to_tokens(tokenized_inputs['input_ids'][1])
+    tokens = tokenizer.convert_ids_to_tokens(tokenized_inputs["input_ids"][1])
     print(tokens)
 
-    print(ranks)
+    for i in range(len(ranks)):
+        rank = ranks[i]
+        context = ds["context"][i]
+        print(rank)
+        max_rank = get_rank_limit(rank_limit, len(context))
+        assert len(rank) == len(context)
+        assert max(rank) <= len(context)
+        assert min(rank) == 0
+        assert max(rank) == max_rank
+        for i in range(max_rank + 1):
+            assert i in rank
+        assert max_rank + 1 not in rank
