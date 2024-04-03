@@ -3,25 +3,22 @@ from scipy.stats import kendalltau, somersd, spearmanr
 
 from predwordimp.util.logger import get_logger
 
+ranking_type = list[int] | np.ndarray
 rankings = list[list[int]] | list[np.ndarray]
 logger = get_logger(__name__)
 
 
 class RankingEvaluator:
-    # @staticmethod
-    # def ignore_maximal(x: rankings) -> rankings:
-    #     """
-    #     Positions with the maximum rank value are for words that were not selected by any user. If some
-    #     user selected fewer words, the average rank will be smaller than rank_limit, so predictions from the
-    #     model are getting penalized for it. Give these words rank equal to sequence length.
-    #     """
-    #     x_transformed = []
-    #     for row in x:
-    #         max_value = max(row)
-    #         x_transformed.append(
-    #             [len(row) if x == max_value else x for x in row]
-    #         )
-    #     return x_transformed
+    @staticmethod
+    def get_selected_only(x: ranking_type) -> set[int]:
+        return {i for i, val in enumerate(x) if val != max(x)}
+
+    @staticmethod
+    def same_lengths(x: rankings | ranking_type, y: rankings | ranking_type) -> None:
+        if len(x) != len(y):
+            raise ValueError(
+                f"The lengths of preds and labels must be the same: {len(x)} != {len(y)}"
+            )
 
     @staticmethod
     def mean_rank_correlation(
@@ -39,10 +36,7 @@ class RankingEvaluator:
         Returns:
             np.floating: Mean rank correlation coefficient.
         """
-        if len(preds) != len(labels):
-            raise ValueError(
-                f"The lengths of preds and labels must be the same: {len(preds)} != {len(labels)}"
-            )
+        RankingEvaluator.same_lengths(preds, labels)
 
         num_samples = len(preds)
         correlations = []
@@ -51,10 +45,7 @@ class RankingEvaluator:
             pred_ranking = preds[i]
             label_ranking = labels[i]
 
-            if len(pred_ranking) != len(label_ranking):
-                raise ValueError(
-                    f"The lengths of predicted and ground truth rankings must be the same for sample {i}"
-                )
+            RankingEvaluator.same_lengths(pred_ranking, label_ranking)
 
             if method == "spearman":
                 rho, _ = spearmanr(pred_ranking, label_ranking)
@@ -73,3 +64,22 @@ class RankingEvaluator:
         mean_correlation = np.mean(correlations)
         logger.info(f"{method} min={min(correlations)}, max={max(correlations)}")
         return mean_correlation
+
+    @staticmethod
+    def has_least_intersection(pred: ranking_type, label: ranking_type, k: int) -> bool:
+        pred_selected = RankingEvaluator.get_selected_only(pred)
+        label_selected = RankingEvaluator.get_selected_only(label)
+        return len(pred_selected.intersection(label_selected)) >= k
+
+    @staticmethod
+    def least_intersection(preds: rankings, labels: rankings, k: int):
+        RankingEvaluator.same_lengths(preds, labels)
+
+        hits = 0
+
+        for pred, label in zip(preds, labels):
+            RankingEvaluator.same_lengths(pred, label)
+            if RankingEvaluator.has_least_intersection(pred, label, k):
+                hits += 1
+
+        return hits / len(preds)
