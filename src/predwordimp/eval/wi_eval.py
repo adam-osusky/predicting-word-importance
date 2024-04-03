@@ -186,4 +186,8 @@ class EvalWordImp(ConfigurableJob):
         sommer = RankingEvaluator.mean_rank_correlation(ranks, labels, "somers")
         logger.info(f"sommer : {sommer}")
 
+        for k in range(1, 6):
+            inter_ratio = RankingEvaluator.least_intersection(ranks, labels, k)
+            logger.info(f"{k}-inter : {inter_ratio}")
+
         return
