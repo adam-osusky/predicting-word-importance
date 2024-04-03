@@ -9,8 +9,11 @@ from datasets import Dataset, load_dataset
 from transformers import AutoModelForTokenClassification, AutoTokenizer
 from transformers.tokenization_utils_base import BatchEncoding
 
+from predwordimp.eval.metrics import RankingEvaluator
 from predwordimp.util.job import ConfigurableJob
 from predwordimp.util.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -18,8 +21,9 @@ class EvalWordImp(ConfigurableJob):
     hf_model: str
     seed: int = 69
     stride: int = 128
+    max_rank_limit: int | float = 0.1
 
-    job_version: str = "0.1"
+    job_version: str = "0.2"
 
     def load_model(self) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(self.hf_model)
@@ -84,10 +88,7 @@ class EvalWordImp(ConfigurableJob):
             ranking = []
             word_ids = tokenized_inputs.word_ids(batch_idx)
             num_words = max(wi for wi in word_ids if wi is not None) + 1
-            print("num_words :", num_words)
-            print("word_ids :", word_ids)
             limit = EvalWordImp.rank_limit(rank_limit, num_words)
-            print("limit :", limit, rank_limit, num_words)
 
             for index in pred:
                 word_id = word_ids[index]
@@ -102,6 +103,10 @@ class EvalWordImp(ConfigurableJob):
 
             rankings.append((ranking, num_words))
 
+            logger.debug(f"num_words : {num_words}")
+            logger.debug(f"word_ids : {word_ids}")
+            logger.debug(f"limit : {limit, rank_limit, num_words}")
+
         return rankings
 
     @staticmethod
@@ -111,16 +116,17 @@ class EvalWordImp(ConfigurableJob):
         ranks = []
 
         for batch_idx, ordering_tuple in enumerate(orderings):
-            print("ordering_tuple :", ordering_tuple)
             ordering = ordering_tuple[0]
             num_words = ordering_tuple[1]
             rank = np.ones(num_words) * len(ordering)
-            print("rank ones :", rank)
 
             for i, pos in enumerate(ordering):
                 rank[pos] = i
 
             ranks.append(rank)
+
+            logger.debug(f"ordering_tuple : {ordering_tuple}")
+            logger.debug(f"rank ones : {rank}")
 
         return ranks
 
@@ -138,23 +144,20 @@ class EvalWordImp(ConfigurableJob):
         logits = logits * (1 - subword_mask)  # mask subword tokens
         sorted_indices = torch.argsort(logits, dim=-1, descending=True)
 
-        print("sorted_indices :", sorted_indices)
-
         orderings = EvalWordImp.sorted2ordering(
             sorted_indices, tokenized_inputs, rank_limit
         )
-        print("orderings :", orderings)
         ranks = EvalWordImp.ordering2ranks(orderings, rank_limit)
 
-        return ranks
+        logger.debug(f"sorted_indices : {sorted_indices}")
+        logger.debug(f"orderings : {orderings}")
 
-        return EvalWordImp.sorted2ordering(sorted_indices, tokenized_inputs, rank_limit)
+        return ranks
 
     def run(self) -> None:
         np.random.seed(self.seed)
         random.seed(self.seed)
 
-        logger = get_logger(__name__)
         data_dir = os.path.join("./data/evalwordimp/", self.job_name)
         # os.makedirs(data_dir, exist_ok=True)
 
@@ -164,128 +167,23 @@ class EvalWordImp(ConfigurableJob):
         logger.info(f"Started Word Importance evaluation job with this args:\n{config}")
 
         ds = self.load_ds()
-        print(ds)
+        logger.info(ds)
 
         self.load_model()
-
         tokenized_inputs = self.tokenize(ds)
         logits = self.predict(tokenized_inputs)
-
-        ranks = self.logits2ranks(logits, tokenized_inputs)
-
-        print(ranks[0])
-        print(ranks[0][[53, 46, 62, 18, 22, 31, 5, 38, 42, 34]])
-
-        tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-uncased")
-        tokenized = tokenizer(
-            [
-                ["Adam", "is", "megafrajer", "."],
-                [
-                    "Guy",
-                    "walks",
-                    "into",
-                    "the",
-                    "doctor",
-                    "'s",
-                    "office",
-                    "and",
-                    "claims",
-                ],
-            ],
-            truncation=True,
-            padding=True,
-            stride=128,
-            is_split_into_words=True,
-            return_tensors="pt",
+        ranks = self.logits2ranks(
+            logits, tokenized_inputs, rank_limit=self.max_rank_limit
         )
-        tokens = tokenizer.convert_ids_to_tokens(tokenized["input_ids"][0])
-        print(tokens)
-        tokens = tokenizer.convert_ids_to_tokens(tokenized["input_ids"][1])
-        print(tokens)
+        labels = ds["label"]
 
-        ############
+        spearman = RankingEvaluator.mean_rank_correlation(ranks, labels, "spearman")
+        logger.info(f"spearman : {spearman}")
 
-        # tokenizer = AutoTokenizer.from_pretrained(self.hf_model)
-        # model = AutoModelForTokenClassification.from_pretrained(self.hf_model)
+        kendal = RankingEvaluator.mean_rank_correlation(ranks, labels, "kendall")
+        logger.info(f"kendal : {kendal}")
 
-        # tokens = tokenizer(
-        #     ds["context"],
-        #     truncation=True,
-        #     padding=True,
-        #     return_overflowing_tokens=True,
-        #     return_special_tokens_mask=True,
-        #     stride=self.stride,
-        #     is_split_into_words=True,
-        #     return_tensors="pt",
-        # )
-
-        # print(tokens.keys())
-
-        # overflow = tokens.pop("overflow_to_sample_mapping", None)
-        # special_tokens_mask = tokens.pop("special_tokens_mask", None)
-
-        # with torch.no_grad():
-        #     out = model(**tokens).logits
-
-        # print("out: ", out.shape)
-        # print("attention masks: ", tokens["attention_mask"][:, :, None].shape)
-        # out = torch.softmax(out, dim=-1)
-        # out = out * tokens["attention_mask"][:, :, None]
-        # out = out[:, :, 0]
-
-        # subword_masks = []
-
-        # # for batch_idx, pred in enumerate(out):
-        # for batch_idx in range(tokens.data["input_ids"].shape[0]):
-        #     word_ids = tokens.word_ids(batch_idx)
-        #     previous_word_idx = None
-        #     subword_mask = []
-        #     for word_idx in word_ids:
-        #         if word_idx is None:
-        #             subword_mask.append(0.0)
-        #         elif word_idx != previous_word_idx:
-        #             subword_mask.append(0.0)
-        #         else:
-        #             subword_mask.append(1.0)
-        #         previous_word_idx = word_idx
-        #     subword_masks.append(subword_mask)
-
-        # subword_mask = torch.tensor(subword_masks)
-        # print("subword_mask: ", subword_mask.shape)
-
-        # print(subword_mask[0])
-        # for i, e in enumerate(subword_mask[0]):
-        #     if e == 1:
-        #         print(ds[0]["context"][tokens.word_ids(0)[i]], end=" ")
-        # print()
-
-        # out = out * (1 - subword_mask)
-
-        # sorted_indices = torch.argsort(out, dim=-1, descending=True)
-
-        # print("out transformed: ", out.shape)
-        # print("sorted indices: ", sorted_indices.shape)
-
-        # print(out[0])
-        # print(sorted_indices[0])
-        # print(out[0][sorted_indices[0]])
-
-        # for batch_idx, pred in enumerate(sorted_indices):
-        #     ranking = []
-        #     repeated = []
-        #     word_ids = tokens.word_ids(batch_idx)
-        #     for index in pred:
-        #         word_id = word_ids[index]
-        #         if word_id is None:
-        #             continue
-        #         if word_id in ranking:
-        #             repeated.append(ds[batch_idx]["context"][word_id])
-        #         ranking.append(word_id)
-        #         print(ds[batch_idx]["context"][word_id], end=" ")
-        #     # print([word_ids[index] for index in pred])
-        #     print(ranking)
-        #     print(len(ranking), len(ds[batch_idx]["label"]))
-        #     print(repeated)
-        #     break
+        sommer = RankingEvaluator.mean_rank_correlation(ranks, labels, "somers")
+        logger.info(f"sommer : {sommer}")
 
         return
