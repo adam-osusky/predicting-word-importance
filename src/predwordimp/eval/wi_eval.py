@@ -177,6 +177,9 @@ class EvalWordImp(ConfigurableJob):
         )
         labels = ds["label"]
 
+        ranks = RankingEvaluator.ignore_maximal(ranks)
+        labels = RankingEvaluator.ignore_maximal(labels)
+
         spearman = RankingEvaluator.mean_rank_correlation(ranks, labels, "spearman")
         logger.info(f"spearman : {spearman}")
 
