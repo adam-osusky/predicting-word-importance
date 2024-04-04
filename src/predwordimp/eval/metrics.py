@@ -10,6 +10,19 @@ logger = get_logger(__name__)
 
 class RankingEvaluator:
     @staticmethod
+    def ignore_maximal(x: rankings) -> rankings:
+        """
+        Positions with the maximum rank value are for words that were not selected by any user. If some
+        user selected fewer words, the average rank will be smaller than rank_limit, so predictions from the
+        model are getting penalized for it. Give these words rank equal to sequence length.
+        """
+        x_transformed = []
+        for row in x:
+            max_value = max(row)
+            x_transformed.append([len(row) if x == max_value else x for x in row])
+        return x_transformed
+
+    @staticmethod
     def get_selected_only(x: ranking_type) -> set[int]:
         return {i for i, val in enumerate(x) if val != max(x)}
 
@@ -22,7 +35,7 @@ class RankingEvaluator:
 
     @staticmethod
     def mean_rank_correlation(
-        preds: rankings, labels: rankings, method: str
+        preds: rankings, labels: rankings, method: str, concatenate_lists: bool = True
     ) -> np.floating:
         """
         Compute the mean rank correlation coefficient between predicted rankings and ground truth rankings.
@@ -37,6 +50,10 @@ class RankingEvaluator:
             np.floating: Mean rank correlation coefficient.
         """
         RankingEvaluator.same_lengths(preds, labels)
+
+        if concatenate_lists:
+            preds = [[item for sublist in preds for item in sublist]]
+            labels = [[item for sublist in labels for item in sublist]]
 
         num_samples = len(preds)
         correlations = []
