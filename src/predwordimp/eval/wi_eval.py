@@ -6,10 +6,12 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 from datasets import Dataset, load_dataset
+from scipy.stats import rankdata
 from transformers import AutoModelForTokenClassification, AutoTokenizer
 from transformers.tokenization_utils_base import BatchEncoding
 
 from predwordimp.eval.metrics import RankingEvaluator
+from predwordimp.eval.util import get_rank_limit
 from predwordimp.util.job import ConfigurableJob
 from predwordimp.util.logger import get_logger
 
@@ -23,7 +25,7 @@ class EvalWordImp(ConfigurableJob):
     stride: int = 128
     max_rank_limit: int | float = 0.1
 
-    job_version: str = "0.2"
+    job_version: str = "0.3"
 
     def load_model(self) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(self.hf_model)
@@ -70,13 +72,6 @@ class EvalWordImp(ConfigurableJob):
         return torch.tensor(subword_masks)
 
     @staticmethod
-    def rank_limit(limit: int | float, length: int) -> int:
-        if isinstance(limit, int):
-            return limit
-        elif isinstance(limit, float):
-            return math.ceil(length * limit)
-
-    @staticmethod
     def sorted2ordering(
         sorted_indices: torch.Tensor,
         tokenized_inputs: BatchEncoding,
@@ -88,7 +83,7 @@ class EvalWordImp(ConfigurableJob):
             ranking = []
             word_ids = tokenized_inputs.word_ids(batch_idx)
             num_words = max(wi for wi in word_ids if wi is not None) + 1
-            limit = EvalWordImp.rank_limit(rank_limit, num_words)
+            limit = get_rank_limit(rank_limit, num_words)
 
             for index in pred:
                 word_id = word_ids[index]
@@ -118,10 +113,10 @@ class EvalWordImp(ConfigurableJob):
         for batch_idx, ordering_tuple in enumerate(orderings):
             ordering = ordering_tuple[0]
             num_words = ordering_tuple[1]
-            rank = np.ones(num_words) * len(ordering)
+            rank = np.ones(num_words) * (len(ordering) + 1)  # first rank = 1
 
             for i, pos in enumerate(ordering):
-                rank[pos] = i
+                rank[pos] = i + 1  # first rank = 1
 
             ranks.append(rank)
 
@@ -177,8 +172,23 @@ class EvalWordImp(ConfigurableJob):
         )
         labels = ds["label"]
 
-        ranks = RankingEvaluator.ignore_maximal(ranks)
-        labels = RankingEvaluator.ignore_maximal(labels)
+        # labels = [rankdata(label) - 1 for label in labels]
+        labels = [rankdata(label) for label in labels]
+
+        print(ranks[:3])
+        limit = self.max_rank_limit
+        ranks = RankingEvaluator.ignore_maximal(
+            ranks, to_limit_ranked=True, ranked_limit=limit
+        )
+        print("========")
+        print(ranks[:3])
+
+        print("====labels====")
+        print(labels[:3])
+        labels = RankingEvaluator.ignore_maximal(
+            labels, to_limit_ranked=True, ranked_limit=limit
+        )
+        print(labels[:3])
 
         spearman = RankingEvaluator.mean_rank_correlation(ranks, labels, "spearman")
         logger.info(f"spearman : {spearman}")

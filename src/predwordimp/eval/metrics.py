@@ -36,7 +36,7 @@ class RankingEvaluator:
 
     @staticmethod
     def ranked_limit(x: ranking_type, r_limit: int | float, max_r: int) -> list[int]:
-        limit = get_rank_limit(r_limit, len(x))
+        limit = get_rank_limit(r_limit, len(x)) + 1
         return [r if r < limit else max_r for r in x]
 
     @staticmethod
