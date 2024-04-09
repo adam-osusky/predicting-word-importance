@@ -1,4 +1,4 @@
-import math
+import json
 import os
 import random
 from dataclasses import dataclass
@@ -11,7 +11,7 @@ from transformers import AutoModelForTokenClassification, AutoTokenizer
 from transformers.tokenization_utils_base import BatchEncoding
 
 from predwordimp.eval.metrics import RankingEvaluator
-from predwordimp.eval.util import get_rank_limit
+from predwordimp.eval.util import get_model_name, get_rank_limit
 from predwordimp.util.job import ConfigurableJob
 from predwordimp.util.logger import get_logger
 
@@ -25,7 +25,7 @@ class EvalWordImp(ConfigurableJob):
     stride: int = 128
     max_rank_limit: int | float = 0.1
 
-    job_version: str = "0.3"
+    job_version: str = "0.4"
 
     def load_model(self) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(self.hf_model)
@@ -153,12 +153,12 @@ class EvalWordImp(ConfigurableJob):
         np.random.seed(self.seed)
         random.seed(self.seed)
 
-        data_dir = os.path.join("./data/evalwordimp/", self.job_name)
-        # os.makedirs(data_dir, exist_ok=True)
+        data_dir = os.path.join("./data/eval/", self.job_name)
+        os.makedirs(data_dir, exist_ok=True)
 
         config = self.get_config()
-        # with open(os.path.join(data_dir, "config.json"), "w") as file:
-        # file.write(config)
+        with open(os.path.join(data_dir, "config.json"), "w") as file:
+            file.write(config)
         logger.info(f"Started Word Importance evaluation job with this args:\n{config}")
 
         ds = self.load_ds()
@@ -170,37 +170,44 @@ class EvalWordImp(ConfigurableJob):
         ranks = self.logits2ranks(
             logits, tokenized_inputs, rank_limit=self.max_rank_limit
         )
-        labels = ds["label"]
 
-        # labels = [rankdata(label) - 1 for label in labels]
+        labels = ds["label"]
         labels = [rankdata(label) for label in labels]
 
-        print(ranks[:3])
         limit = self.max_rank_limit
         ranks = RankingEvaluator.ignore_maximal(
             ranks, to_limit_ranked=True, ranked_limit=limit
         )
-        print("========")
-        print(ranks[:3])
 
-        print("====labels====")
-        print(labels[:3])
         labels = RankingEvaluator.ignore_maximal(
             labels, to_limit_ranked=True, ranked_limit=limit
         )
-        print(labels[:3])
 
-        spearman = RankingEvaluator.mean_rank_correlation(ranks, labels, "spearman")
-        logger.info(f"spearman : {spearman}")
+        results = {}
+        results["name"] = get_model_name(self.hf_model)
+        logger.info(f"model : {results['name']}")
 
-        kendal = RankingEvaluator.mean_rank_correlation(ranks, labels, "kendall")
-        logger.info(f"kendal : {kendal}")
+        results["spearman"] = RankingEvaluator.mean_rank_correlation(
+            ranks, labels, "spearman"
+        )
+        logger.info(f"spearman : {results['spearman']}")
 
-        sommer = RankingEvaluator.mean_rank_correlation(ranks, labels, "somers")
-        logger.info(f"sommer : {sommer}")
+        results["kendall"] = RankingEvaluator.mean_rank_correlation(
+            ranks, labels, "kendall"
+        )
+        logger.info(f"kendal : {results['kendall']}")
+
+        results["somers"] = RankingEvaluator.mean_rank_correlation(
+            ranks, labels, "somers"
+        )
+        logger.info(f"sommer : {results['somers']}")
 
         for k in range(1, 6):
-            inter_ratio = RankingEvaluator.least_intersection(ranks, labels, k)
-            logger.info(f"{k}-inter : {inter_ratio}")
+            k_inter = f"{k}-inter"
+            results[k_inter] = RankingEvaluator.least_intersection(ranks, labels, k)
+            logger.info(f"{k_inter} : {results[k_inter]}")
+
+        with open(os.path.join(data_dir, "results.json"), "w") as f:
+            json.dump(results, f, indent=4)
 
         return
