@@ -1,11 +1,14 @@
-import math
 from typing import Any
 
 import pytest
 import torch
+from predwordimp.eval.util import get_rank_limit
 from predwordimp.eval.wi_eval import EvalWordImp
+from predwordimp.util.logger import get_logger
 from transformers import AutoTokenizer
 from transformers.tokenization_utils_base import BatchEncoding
+
+logger = get_logger(__name__, log_level=10)
 
 
 @pytest.fixture
@@ -63,13 +66,6 @@ def eval_job() -> EvalWordImp:
     return EvalWordImp.from_dict(d)
 
 
-def get_rank_limit(limit: int | float, length: int) -> int:
-    if isinstance(limit, int):
-        return limit
-    elif isinstance(limit, float):
-        return math.ceil(length * limit)
-
-
 @pytest.mark.parametrize("rank_limit", [1, 2, 3, 0.1, 0.25, 0.5, 0.75])
 def test_logits2ranks(
     logits: torch.Tensor,
@@ -78,26 +74,30 @@ def test_logits2ranks(
     ds: dict[str, Any],
     rank_limit: int | float,
 ) -> None:
-    print("RANK LIMIT :", rank_limit)
+    logger.debug(f"RANK LIMIT : {rank_limit}")
     ranks = eval_job.logits2ranks(logits, tokenized_inputs, rank_limit)
-    print("ranks :", ranks)
+    logger.debug(f"ranks : {ranks}")
 
-    print("==========")
+    logger.debug("==========")
     tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-uncased")
     tokens = tokenizer.convert_ids_to_tokens(tokenized_inputs["input_ids"][0])
-    print(tokens)
+    logger.debug(tokens)
     tokens = tokenizer.convert_ids_to_tokens(tokenized_inputs["input_ids"][1])
-    print(tokens)
+    logger.debug(tokens)
 
     for i in range(len(ranks)):
         rank = ranks[i]
         context = ds["context"][i]
-        print(rank)
-        max_rank = get_rank_limit(rank_limit, len(context))
+        logger.debug(rank)
+
+        # first rank = 1 so rank for unselected is len(ordering) + 1
+        max_rank = get_rank_limit(rank_limit, len(context)) + 1
+
         assert len(rank) == len(context)
         assert max(rank) <= len(context)
-        assert min(rank) == 0
+        assert min(rank) == 1  # first rank = 1
         assert max(rank) == max_rank
-        for i in range(max_rank + 1):
+
+        for i in range(1, max_rank + 1):
             assert i in rank
         assert max_rank + 1 not in rank
