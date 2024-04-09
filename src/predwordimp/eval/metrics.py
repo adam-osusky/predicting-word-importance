@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.stats import kendalltau, somersd, spearmanr
 
+from predwordimp.eval.util import get_rank_limit
 from predwordimp.util.logger import get_logger
 
 ranking_type = list[int] | np.ndarray
@@ -10,7 +11,9 @@ logger = get_logger(__name__)
 
 class RankingEvaluator:
     @staticmethod
-    def ignore_maximal(x: rankings) -> rankings:
+    def ignore_maximal(
+        x: rankings, to_limit_ranked: bool = False, ranked_limit: float | int = 0.0
+    ) -> rankings:
         """
         Positions with the maximum rank value are for words that were not selected by any user. If some
         user selected fewer words, the average rank will be smaller than rank_limit, so predictions from the
@@ -19,8 +22,22 @@ class RankingEvaluator:
         x_transformed = []
         for row in x:
             max_value = max(row)
-            x_transformed.append([len(row) if x == max_value else x for x in row])
+
+            row_transformed = [len(row) if x == max_value else x for x in row]
+
+            if to_limit_ranked:
+                # row_transformed = RankingEvaluator.ranked_limit(row_transformed, ranked_limit, len(row) - 1)
+                row_transformed = RankingEvaluator.ranked_limit(
+                    row_transformed, ranked_limit, len(row)
+                )
+
+            x_transformed.append(row_transformed)
         return x_transformed
+
+    @staticmethod
+    def ranked_limit(x: ranking_type, r_limit: int | float, max_r: int) -> list[int]:
+        limit = get_rank_limit(r_limit, len(x))
+        return [r if r < limit else max_r for r in x]
 
     @staticmethod
     def get_selected_only(x: ranking_type) -> set[int]:
