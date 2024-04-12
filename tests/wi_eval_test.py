@@ -2,13 +2,14 @@ from typing import Any
 
 import pytest
 import torch
+from predwordimp.eval.metrics import RankingEvaluator, rankings
 from predwordimp.eval.util import get_rank_limit
 from predwordimp.eval.wi_eval import EvalWordImp
 from predwordimp.util.logger import get_logger
 from transformers import AutoTokenizer
 from transformers.tokenization_utils_base import BatchEncoding
 
-logger = get_logger(__name__, log_level=10)
+logger = get_logger(__name__, log_level=20)
 
 
 @pytest.fixture
@@ -23,6 +24,15 @@ def ds() -> dict[str, Any]:
             [2, 3, 3, 3, 1, 3, 1.5, 3, 3],
         ],
     }
+
+
+@pytest.fixture
+def rankings_ten() -> rankings:
+    return [
+        [10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
+        [5, 3, 5, 2, 5, 4, 5, 1, 5, 5],
+        [2, 3, 3, 3, 3, 3, 3, 3, 1, 3],
+    ]
 
 
 @pytest.fixture
@@ -101,3 +111,25 @@ def test_logits2ranks(
         for i in range(1, max_rank + 1):
             assert i in rank
         assert max_rank + 1 not in rank
+
+
+@pytest.mark.parametrize("rank_limit", [1, 2, 3, 0.1, 0.2, 0.3])
+def test_ignore_maximal(rankings_ten: rankings, rank_limit: int | float):
+    for b in [True, False]:
+        ignored = RankingEvaluator.ignore_maximal(
+            rankings_ten, to_limit_ranked=b, ranked_limit=rank_limit
+        )
+
+        for i in range(len(ignored)):
+            row = ignored[i]
+            max_selected_rank = get_rank_limit(rank_limit, len(row))
+
+            assert max(row) == len(row)
+
+            if b:
+                assert sorted(set(row), reverse=True)[1] <= max_selected_rank
+                assert max_selected_rank + 1 not in row
+
+            selected = sorted([r for r in row if r <= max_selected_rank])
+            for j in range(len(selected) - 1):
+                assert selected[j] + 1 == selected[j + 1]
