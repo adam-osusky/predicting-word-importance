@@ -11,9 +11,7 @@ logger = get_logger(__name__)
 
 class RankingEvaluator:
     @staticmethod
-    def ignore_maximal(
-        x: rankings, to_limit_ranked: bool = False, ranked_limit: float | int = 0.0
-    ) -> rankings:
+    def ignore_maximal(x: rankings, rank_limit: float | int = 0.0) -> rankings:
         """
         Modifies the rankings by ignoring the maximal value in each ranking and changing it to limit for number
         of selected-ranked words.
@@ -32,23 +30,12 @@ class RankingEvaluator:
         """
         x_transformed = []
         for row in x:
-            max_value = max(row)
-
-            row_transformed = [len(row) if x == max_value else x for x in row]
-
-            if to_limit_ranked:
-                # row_transformed = RankingEvaluator.ranked_limit(row_transformed, ranked_limit, len(row) - 1)
-                row_transformed = RankingEvaluator.ranked_limit(
-                    row_transformed, ranked_limit
-                )
+            limit = get_rank_limit(rank_limit, len(row)) + 1
+            maximal = max(row)
+            row_transformed = [limit if x >= limit or x == maximal else x for x in row]
 
             x_transformed.append(row_transformed)
         return x_transformed
-
-    @staticmethod
-    def ranked_limit(x: ranking_type, r_limit: int | float) -> list[int]:
-        limit = get_rank_limit(r_limit, len(x)) + 1
-        return [r if r < limit else limit for r in x]  # TODO decide
 
     @staticmethod
     def get_selected_only(x: ranking_type) -> set[int]:

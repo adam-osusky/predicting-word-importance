@@ -114,22 +114,18 @@ def test_logits2ranks(
 
 
 @pytest.mark.parametrize("rank_limit", [1, 2, 3, 0.1, 0.2, 0.3])
-def test_ignore_maximal(rankings_ten: rankings, rank_limit: int | float):
-    for b in [True, False]:
-        ignored = RankingEvaluator.ignore_maximal(
-            rankings_ten, to_limit_ranked=b, ranked_limit=rank_limit
-        )
+def test_ignore_maximal(rankings_ten: rankings, rank_limit: int | float) -> None:
+    ignored = RankingEvaluator.ignore_maximal(rankings_ten, rank_limit=rank_limit)
 
-        for i in range(len(ignored)):
-            row = ignored[i]
-            max_selected_rank = get_rank_limit(rank_limit, len(row))
+    for i in range(len(ignored)):
+        row = ignored[i]
+        max_selected_rank = get_rank_limit(rank_limit, len(row))
 
-            assert max(row) == len(row)
+        assert max(row) == max_selected_rank + 1
 
-            if b:
-                assert sorted(set(row), reverse=True)[1] <= max_selected_rank
-                assert max_selected_rank + 1 not in row
+        assert sorted(set(row), reverse=True)[1] <= max_selected_rank
+        assert max_selected_rank + 2 not in row
 
-            selected = sorted([r for r in row if r <= max_selected_rank])
-            for j in range(len(selected) - 1):
-                assert selected[j] + 1 == selected[j + 1]
+        selected = sorted([r for r in row if r <= max_selected_rank])
+        for j in range(len(selected) - 1):
+            assert selected[j] + 1 == selected[j + 1]
