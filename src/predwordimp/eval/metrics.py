@@ -15,9 +15,20 @@ class RankingEvaluator:
         x: rankings, to_limit_ranked: bool = False, ranked_limit: float | int = 0.0
     ) -> rankings:
         """
-        Positions with the maximum rank value are for words that were not selected by any user. If some
-        user selected fewer words, the average rank will be smaller than rank_limit, so predictions from the
-        model are getting penalized for it. Give these words rank equal to sequence length.
+        Modifies the rankings by ignoring the maximal value in each ranking and changing it to limit for number
+        of selected-ranked words.
+
+        If some user selected fewer words, the average rank will be smaller than rank_limit.
+
+        Parameters:
+            x (rankings): The list of rankings.
+            to_limit_ranked (bool, optional): If True, limits the number of selected-ranked values based on the
+                'ranked_limit' parameter. Default is False.
+            ranked_limit (float | int): The threshold for limiting the number of selected-ranked values.
+
+        Returns:
+            rankings: The modified rankings after ignoring the maximal value and optionally limiting the number of
+                selected-ranked values.
         """
         x_transformed = []
         for row in x:
@@ -28,16 +39,16 @@ class RankingEvaluator:
             if to_limit_ranked:
                 # row_transformed = RankingEvaluator.ranked_limit(row_transformed, ranked_limit, len(row) - 1)
                 row_transformed = RankingEvaluator.ranked_limit(
-                    row_transformed, ranked_limit, len(row)
+                    row_transformed, ranked_limit
                 )
 
             x_transformed.append(row_transformed)
         return x_transformed
 
     @staticmethod
-    def ranked_limit(x: ranking_type, r_limit: int | float, max_r: int) -> list[int]:
+    def ranked_limit(x: ranking_type, r_limit: int | float) -> list[int]:
         limit = get_rank_limit(r_limit, len(x)) + 1
-        return [r if r < limit else max_r for r in x]
+        return [r if r < limit else limit for r in x]  # TODO decide
 
     @staticmethod
     def get_selected_only(x: ranking_type) -> set[int]:
