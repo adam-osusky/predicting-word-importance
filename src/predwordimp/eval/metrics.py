@@ -44,6 +44,56 @@ class RankingEvaluator:
         return {i for i, val in enumerate(x) if val != max(x)}
 
     @staticmethod
+    def get_selected_order(x: ranking_type) -> list[int]:
+        selected = [(i, val) for i, val in enumerate(x) if val != max(x)]
+        order = sorted(selected, key=lambda x: x[1])
+        return [x[0] for x in order]
+
+    @staticmethod
+    def avg_overlap(x: list[int], y: list[int], depth: int) -> np.floating:
+        overlaps = []
+
+        for i in range(1, depth + 1):
+            x_prefix = set(x[:i])
+            y_prefix = set(y[:i])
+            intersection = x_prefix.intersection(y_prefix)
+            union = x_prefix.union(y_prefix)
+            overlap = len(intersection) / i
+
+            logger.debug(f"prefixes : {x_prefix, y_prefix}")
+            logger.debug(f"inter: {intersection}")
+            logger.debug(f"union : {union}")
+            logger.debug(f"overlap : {overlap}")
+
+            overlaps.append(overlap)
+
+        return np.mean(overlaps)
+
+    @staticmethod
+    def avg_overlaps(preds, labels, limit: int | float):
+        RankingEvaluator.same_lengths(preds, labels)
+
+        overlaps = []
+
+        for pred, label in zip(preds, labels):
+            RankingEvaluator.same_lengths(pred, label)
+            depth = get_rank_limit(limit, len(pred))
+
+            pred_selected = RankingEvaluator.get_selected_order(pred)
+            label_selected = RankingEvaluator.get_selected_order(label)
+
+            overlap = RankingEvaluator.avg_overlap(pred_selected, label_selected, depth)
+
+            logger.debug(f"pred_selected : {pred_selected}")
+            logger.debug(f"label_selected : {label_selected}")
+            logger.debug(f"avg_overlap : {overlap}")
+            logger.debug("===============")
+
+            overlaps.append(overlap)
+
+        return np.mean(overlaps)
+
+    @staticmethod
     def same_lengths(x: rankings | ranking_type, y: rankings | ranking_type) -> None:
         if len(x) != len(y):
             raise ValueError(
