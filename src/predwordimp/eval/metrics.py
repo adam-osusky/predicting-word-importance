@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.stats import kendalltau, somersd, spearmanr
+from scipy.stats import kendalltau, pearsonr, somersd
 
 from predwordimp.eval.util import get_rank_limit
 from predwordimp.util.logger import get_logger
@@ -32,7 +32,9 @@ class RankingEvaluator:
         for row in x:
             limit = get_rank_limit(rank_limit, len(row)) + 1
             maximal = max(row)
-            row_transformed = [limit if x >= limit or x == maximal else x for x in row]
+            row_transformed = [
+                limit if x >= limit or x == maximal else x for x in row
+            ]  # TODO decide rank for unselected words
 
             x_transformed.append(row_transformed)
         return x_transformed
@@ -80,7 +82,8 @@ class RankingEvaluator:
             RankingEvaluator.same_lengths(pred_ranking, label_ranking)
 
             if method == "spearman":
-                rho, _ = spearmanr(pred_ranking, label_ranking)
+                # r = spearmanr(pred_ranking, label_ranking)
+                rho, _ = pearsonr(pred_ranking, label_ranking)
                 correlations.append(rho)
             elif method == "kendall":
                 tau, _ = kendalltau(pred_ranking, label_ranking)
