@@ -172,16 +172,18 @@ class EvalWordImp(ConfigurableJob):
         )
 
         labels = ds["label"]
-        labels = [rankdata(label) for label in labels]
+        labels = [rankdata(label, method="ordinal") for label in labels]
 
         limit = self.max_rank_limit
-        ranks = RankingEvaluator.ignore_maximal(
-            ranks, to_limit_ranked=True, ranked_limit=limit
-        )
+        logger.debug("=======ranks=========")
+        logger.debug(ranks[0])
+        ranks = RankingEvaluator.ignore_maximal(ranks, rank_limit=limit)
+        logger.debug(ranks[0])
 
-        labels = RankingEvaluator.ignore_maximal(
-            labels, to_limit_ranked=True, ranked_limit=limit
-        )
+        logger.debug("=======labels=========")
+        logger.debug(labels[0])
+        labels = RankingEvaluator.ignore_maximal(labels, rank_limit=limit)
+        logger.debug(labels[0])
 
         results = {}
         results["name"] = get_model_name(self.hf_model)
@@ -206,6 +208,9 @@ class EvalWordImp(ConfigurableJob):
             k_inter = f"{k}-inter"
             results[k_inter] = RankingEvaluator.least_intersection(ranks, labels, k)
             logger.info(f"{k_inter} : {results[k_inter]}")
+
+        results["avg_overlap"] = RankingEvaluator.avg_overlaps(ranks, labels, limit)
+        logger.info(f"avg_overlap : {results['avg_overlap']}")
 
         with open(os.path.join(data_dir, "results.json"), "w") as f:
             json.dump(results, f, indent=4)
