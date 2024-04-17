@@ -101,6 +101,34 @@ class RankingEvaluator:
             )
 
     @staticmethod
+    def remove_maximal_pairs(
+        preds: rankings, labels: rankings
+    ) -> tuple[rankings, rankings]:
+        # RankingEvaluator.same_lengths(preds, labels)
+
+        new_preds = []
+        new_labels = []
+
+        for pred, label in zip(preds, labels):
+            last_rank = max(pred)
+
+            if max(label) != last_rank:
+                raise ValueError("Maximum ranks in preds and labels are not equal.")
+
+            good_pairs = [
+                (p, l)
+                for p, l in zip(pred, label)
+                if not ((p == l) and (p == last_rank))
+            ]
+
+            # good_pairs = [(p, l) for p, l in zip(pred, label) if p != last_rank and l != last_rank]
+
+            new_preds.append([pair[0] for pair in good_pairs])
+            new_labels.append([pair[1] for pair in good_pairs])
+
+        return new_preds, new_labels
+
+    @staticmethod
     def mean_rank_correlation(
         preds: rankings, labels: rankings, method: str, concatenate_lists: bool = True
     ) -> np.floating:
