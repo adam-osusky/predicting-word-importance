@@ -3,6 +3,8 @@ from typing import Any
 
 import numpy as np
 
+from predwordimp.eval.util import get_rank_limit
+
 
 def get_user_rankings(user_id, db) -> dict[Any, Any]:
     conn = sqlite3.connect(db)
@@ -54,7 +56,7 @@ def get_len(task_id, db) -> int:
 
 
 def annot2rank(ranks, txt_len) -> Any:
-    label = np.ones(txt_len) * txt_len
+    label = np.ones(txt_len) * (get_rank_limit(0.1, txt_len) + 1)
 
     for i, e in enumerate(ranks):
         pos = e["position"]
