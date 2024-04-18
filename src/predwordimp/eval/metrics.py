@@ -131,7 +131,7 @@ class RankingEvaluator:
     @staticmethod
     def mean_rank_correlation(
         preds: rankings, labels: rankings, method: str, concatenate_lists: bool = True
-    ) -> np.floating:
+    ) -> tuple[np.floating, list[float]]:
         """
         Compute the mean rank correlation coefficient between predicted rankings and ground truth rankings.
 
@@ -152,6 +152,7 @@ class RankingEvaluator:
 
         num_samples = len(preds)
         correlations = []
+        p_values = []
 
         for i in range(num_samples):
             pred_ranking = preds[i]
@@ -159,24 +160,26 @@ class RankingEvaluator:
 
             RankingEvaluator.same_lengths(pred_ranking, label_ranking)
 
-            if method == "spearman":
+            if method == "pearson":
                 # r = spearmanr(pred_ranking, label_ranking)
-                rho, _ = pearsonr(pred_ranking, label_ranking)
-                correlations.append(rho)
+                corr, pval = pearsonr(pred_ranking, label_ranking)
+                correlations.append(corr)
+                p_values.append(pval)
             elif method == "kendall":
-                tau, _ = kendalltau(pred_ranking, label_ranking)
+                tau, pval = kendalltau(pred_ranking, label_ranking)
                 correlations.append(tau)
+                p_values.append(pval)
             elif method == "somers":
                 d = somersd(pred_ranking, label_ranking).statistic
                 correlations.append(d)
             else:
                 raise ValueError(
-                    f"Invalid method: {method}. Choose from 'spearman', 'kendall', 'somers'."
+                    f"Invalid method: {method}. Choose from 'pearson', 'kendall', 'somers'."
                 )
 
         mean_correlation = np.mean(correlations)
         logger.info(f"{method} min={min(correlations)}, max={max(correlations)}")
-        return mean_correlation
+        return mean_correlation, p_values
 
     @staticmethod
     def has_least_intersection(pred: ranking_type, label: ranking_type, k: int) -> bool:

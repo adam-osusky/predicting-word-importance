@@ -189,14 +189,16 @@ class EvalWordImp(ConfigurableJob):
         results["name"] = get_model_name(self.hf_model)
         logger.info(f"model : {results['name']}")
 
-        results["spearman"] = RankingEvaluator.mean_rank_correlation(
-            ranks, labels, "spearman"
+        results["pearson"], p_vals = RankingEvaluator.mean_rank_correlation(
+            ranks, labels, "pearson"
         )
-        logger.info(f"spearman : {results['spearman']}")
+        results["pearson_pvalue"] = p_vals[0]
+        logger.info(f"pearson : {results['pearson']}")
 
-        results["kendall"] = RankingEvaluator.mean_rank_correlation(
+        results["kendall"], p_vals = RankingEvaluator.mean_rank_correlation(
             ranks, labels, "kendall"
         )
+        results["kendall_pvalue"] = p_vals[0]
         logger.info(f"kendal : {results['kendall']}")
 
         results["somers"] = RankingEvaluator.mean_rank_correlation(
