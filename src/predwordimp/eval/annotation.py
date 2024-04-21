@@ -55,8 +55,13 @@ def get_len(task_id, db) -> int:
     return len(task[0].split())
 
 
-def annot2rank(ranks, txt_len) -> Any:
-    label = np.ones(txt_len) * (get_rank_limit(0.1, txt_len) + 1)
+def annot2rank(ranks, txt_len, last_rank_method="rank_limit") -> Any:
+    if last_rank_method == "rank_limit":
+        label = np.ones(txt_len) * (get_rank_limit(0.1, txt_len) + 1)
+    elif last_rank_method == "ordering_len":
+        label = np.ones(txt_len) * (len(ranks) + 1)
+    elif last_rank_method == "context_len":
+        label = np.ones(txt_len) * txt_len
 
     for i, e in enumerate(ranks):
         pos = e["position"]
