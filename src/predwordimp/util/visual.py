@@ -112,7 +112,7 @@ def highlight_words(
             num_lines += 1
 
         text += w + " "
-    logger.info(len(order), len(highlight_textprops))
+    logger.info(f"{len(order)}, {len(highlight_textprops)}")
     return text, highlight_textprops
 
 
