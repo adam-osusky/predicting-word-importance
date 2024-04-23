@@ -18,10 +18,12 @@ def ds() -> dict[str, Any]:
         "context": [
             ["Adam", "is", "megafrajer", "."],
             ["Guy", "walks", "into", "the", "doctor", "'s", "office", "and", "claims"],
+            ["(PERSON12)", "Adam", "is", "(PERSON266)", "megafrajer", "."],
         ],
         "label": [
             [1, 2, 0, 2],
             [2, 3, 3, 3, 1, 3, 1.5, 3, 3],
+            [2, 1, 2, 2, 0, 2],
         ],
     }
 
@@ -51,7 +53,7 @@ def tokenized_inputs(ds: dict[str, Any]) -> BatchEncoding:
 @pytest.fixture
 def logits() -> torch.Tensor:
     torch.manual_seed(69)
-    random_tensor = torch.rand([2, 12, 2])
+    random_tensor = torch.rand([3, 17, 2])
     random_tensor = 2 * random_tensor - 1
 
     random_tensor[0][3][0] = 100.0
@@ -85,6 +87,7 @@ def test_logits2ranks(
     rank_limit: int | float,
 ) -> None:
     logger.debug(f"RANK LIMIT : {rank_limit}")
+    eval_job.set_prohibited(tokenized_inputs, ds)
     ranks = eval_job.logits2ranks(logits, tokenized_inputs, rank_limit)
     logger.debug(f"ranks : {ranks}")
 
@@ -94,14 +97,18 @@ def test_logits2ranks(
     logger.debug(tokens)
     tokens = tokenizer.convert_ids_to_tokens(tokenized_inputs["input_ids"][1])
     logger.debug(tokens)
+    tokens = tokenizer.convert_ids_to_tokens(tokenized_inputs["input_ids"][2])
+    logger.debug(tokens)
 
     for i in range(len(ranks)):
         rank = ranks[i]
         context = ds["context"][i]
-        logger.debug(rank)
+        logger.debug(f"rank: {rank}")
 
         # first rank = 1 so rank for unselected is len(ordering) + 1
         max_rank = get_rank_limit(rank_limit, len(context)) + 1
+        logger.debug(f"max_rank: {max_rank}")
+        logger.debug(f"len(context): {len(context)}")
 
         assert len(rank) == len(context)
         assert max(rank) <= len(context)

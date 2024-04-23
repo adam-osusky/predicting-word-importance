@@ -35,7 +35,7 @@ class EvalWordImp(ConfigurableJob):
         return load_dataset("adasgaleus/word-importance", split="test")  # type: ignore
 
     def tokenize(self, ds: Dataset) -> BatchEncoding:
-        return self.tokenizer(
+        tokenized = self.tokenizer(
             ds["context"],
             truncation=True,
             padding=True,
@@ -46,13 +46,34 @@ class EvalWordImp(ConfigurableJob):
             return_tensors="pt",
         )
 
+        self.set_prohibited(tokenized, ds)
+
+        return tokenized
+
+    def set_prohibited(self, tokenized: BatchEncoding, ds: Dataset) -> None:
+        self.prohibited_word_ids = torch.zeros(tokenized.data["input_ids"].shape)
+        for batch_idx, context in enumerate(ds["context"]):
+            for word_idx, word in enumerate(context):
+                if EvalWordImp.is_prohibited_word(word):
+                    self.prohibited_word_ids[batch_idx, word_idx] = True
+
+        logger.debug(f"prohibited_word_ids: {self.prohibited_word_ids}")
+
+    @staticmethod
+    def is_prohibited_word(w: str) -> bool:
+        if w.startswith("(PERSON"):  # speaker tags
+            return True
+        return False
+
     def predict(self, tokenized_inputs: BatchEncoding) -> torch.Tensor:
         with torch.no_grad():
             logits = self.model(**tokenized_inputs).logits
         return logits
 
     @staticmethod
-    def get_subwordmask(tokenized_inputs: BatchEncoding):
+    def get_ignore_mask(
+        tokenized_inputs: BatchEncoding, prohibited: torch.Tensor
+    ) -> torch.Tensor:
         subword_masks = []
 
         for batch_idx in range(tokenized_inputs.data["input_ids"].shape[0]):
@@ -62,6 +83,8 @@ class EvalWordImp(ConfigurableJob):
             for word_idx in word_ids:
                 if word_idx is None:
                     subword_mask.append(0)
+                elif prohibited[batch_idx, word_idx]:
+                    subword_mask.append(1)
                 elif word_idx != previous_word_idx:
                     subword_mask.append(0)
                 else:
@@ -101,6 +124,8 @@ class EvalWordImp(ConfigurableJob):
             logger.debug(f"num_words : {num_words}")
             logger.debug(f"word_ids : {word_ids}")
             logger.debug(f"limit : {limit, rank_limit, num_words}")
+            logger.debug(f"pred: {pred}")
+            logger.debug(f"ranking: {ranking}")
 
         return rankings
 
@@ -135,8 +160,10 @@ class EvalWordImp(ConfigurableJob):
         logits = logits * tokenized_inputs.data["attention_mask"][:, :, None]
         logits = logits[:, :, 0]  # keep prob of not inserted
 
-        subword_mask = EvalWordImp.get_subwordmask(tokenized_inputs)
-        logits = logits * (1 - subword_mask)  # mask subword tokens
+        ignore_mask = EvalWordImp.get_ignore_mask(
+            tokenized_inputs, self.prohibited_word_ids
+        )
+        logits = logits * (1 - ignore_mask)  # mask ignore tokens
         sorted_indices = torch.argsort(logits, dim=-1, descending=True)
 
         orderings = EvalWordImp.sorted2ordering(
@@ -146,6 +173,7 @@ class EvalWordImp(ConfigurableJob):
 
         logger.debug(f"sorted_indices : {sorted_indices}")
         logger.debug(f"orderings : {orderings}")
+        logger.debug(f"ignore_mask: {ignore_mask}")
 
         return ranks
 
