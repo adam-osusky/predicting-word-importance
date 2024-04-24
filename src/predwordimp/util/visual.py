@@ -112,11 +112,11 @@ def highlight_words(
             num_lines += 1
 
         text += w + " "
-    logger.info(f"{len(order)}, {len(highlight_textprops)}")
+    logger.debug(f"{len(order)}, {len(highlight_textprops)}")
     return text, highlight_textprops
 
 
-def view_predictions(pred: list[int], label: list[int], words: list[str]):
+def view_predictions(pred: list[int], label: list[int], words: list[str]) -> None:
     delims = ("{", "}")
     pred_order = RankingEvaluator.get_selected_order(pred)
     label_order = RankingEvaluator.get_selected_order(label)
@@ -163,3 +163,40 @@ def view_predictions(pred: list[int], label: list[int], words: list[str]):
 
     # fig.savefig(f"figs/{name}.pdf", format="pdf")
     # plt.show()
+
+
+def view_list_predictions(
+    rankings: list[list[int]], words: list[str], names: list[str], save_name: str = ""
+) -> None:
+    delims = ("{", "}")
+    fontsize = 15
+
+    # fig, ax = plt.subplots(nrows=3, figsize=(7, 6))
+    fig, ax = plt.subplots(nrows=3, figsize=(10, 6))
+
+    for i, ranking in enumerate(rankings):
+        order = RankingEvaluator.get_selected_order(ranking)
+        txt, highlights = highlight_words(words, order)
+
+        logger.debug(f"{names[i]}: {order}")
+
+        ax[i].axis("off")
+        ax[i].set_title(names[i], fontsize=fontsize)
+        HighlightText(
+            x=0.5,
+            y=0.5,
+            fontsize=fontsize,
+            ha="center",
+            va="center",
+            s=txt,
+            highlight_textprops=highlights,
+            ax=ax[i],
+            delim=delims,
+        )
+
+    if save_name != "":
+        fig.savefig(f"figs/{save_name}.pdf", format="pdf")
+
+    plt.show()
+
+    logger.debug(words[:10])
