@@ -19,8 +19,11 @@ from predwordimp.util.logger import get_logger
 logger = get_logger(__name__)
 
 
-def load_ds() -> Dataset:
-    return load_dataset("adasgaleus/word-importance", split="test")  # type: ignore
+def load_ds(domain: str = "") -> Dataset:
+    ds = load_dataset("adasgaleus/word-importance", split="test")
+    if domain != "":
+        ds = ds.filter(function=lambda sample: sample["domain"] == domain)
+    return ds  # type: ignore
 
 
 def is_prohibited_word(w: str) -> bool:
@@ -35,8 +38,9 @@ class EvalWordImp(ConfigurableJob):
     seed: int = 69
     stride: int = 128
     max_rank_limit: int | float = 0.1
+    domain: str = ""
 
-    job_version: str = "0.4"
+    job_version: str = "0.5"
 
     def load_model(self) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(self.hf_model)
@@ -191,7 +195,7 @@ class EvalWordImp(ConfigurableJob):
             file.write(config)
         logger.info(f"Started Word Importance evaluation job with this args:\n{config}")
 
-        ds = load_ds()
+        ds = load_ds(self.domain)
         logger.info(ds)
 
         self.load_model()
@@ -254,8 +258,9 @@ class EvalWordImp(ConfigurableJob):
 class EvalWordImpTFIDF(ConfigurableJob):
     seed: int = 69
     max_rank_limit: int | float = 0.1
+    domain: str = ""
 
-    job_version: str = "0.1"
+    job_version: str = "0.2"
 
     @staticmethod
     def get_terms(contexts: list[list[str]]) -> dict[str, int]:
@@ -318,7 +323,7 @@ class EvalWordImpTFIDF(ConfigurableJob):
             f"Started TFIDF Word Importance evaluation job with this args:\n{config}"
         )
 
-        ds = load_ds()
+        ds = load_ds(self.domain)
         contexts = [[w.lower() for w in context] for context in ds["context"]]
 
         labels = ds["label"]
