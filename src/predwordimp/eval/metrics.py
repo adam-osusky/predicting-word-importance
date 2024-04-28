@@ -70,7 +70,7 @@ class RankingEvaluator:
         return np.mean(overlaps)
 
     @staticmethod
-    def avg_overlaps(preds, labels, limit: int | float):
+    def avg_overlaps(preds, labels, limit: int | float) -> np.floating:
         RankingEvaluator.same_lengths(preds, labels)
 
         overlaps = []

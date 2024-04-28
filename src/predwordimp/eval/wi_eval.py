@@ -1,6 +1,7 @@
 import json
 import os
 import random
+from collections import Counter
 from dataclasses import dataclass
 
 import numpy as np
@@ -18,6 +19,16 @@ from predwordimp.util.logger import get_logger
 logger = get_logger(__name__)
 
 
+def load_ds() -> Dataset:
+    return load_dataset("adasgaleus/word-importance", split="test")  # type: ignore
+
+
+def is_prohibited_word(w: str) -> bool:
+    if w.startswith("(PERSON"):  # speaker tags
+        return True
+    return False
+
+
 @dataclass
 class EvalWordImp(ConfigurableJob):
     hf_model: str
@@ -30,9 +41,6 @@ class EvalWordImp(ConfigurableJob):
     def load_model(self) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(self.hf_model)
         self.model = AutoModelForTokenClassification.from_pretrained(self.hf_model)
-
-    def load_ds(self) -> Dataset:
-        return load_dataset("adasgaleus/word-importance", split="test")  # type: ignore
 
     def tokenize(self, ds: Dataset) -> BatchEncoding:
         tokenized = self.tokenizer(
@@ -54,16 +62,10 @@ class EvalWordImp(ConfigurableJob):
         self.prohibited_word_ids = torch.zeros(tokenized.data["input_ids"].shape)
         for batch_idx, context in enumerate(ds["context"]):
             for word_idx, word in enumerate(context):
-                if EvalWordImp.is_prohibited_word(word):
+                if is_prohibited_word(word):
                     self.prohibited_word_ids[batch_idx, word_idx] = True
 
         logger.debug(f"prohibited_word_ids: {self.prohibited_word_ids}")
-
-    @staticmethod
-    def is_prohibited_word(w: str) -> bool:
-        if w.startswith("(PERSON"):  # speaker tags
-            return True
-        return False
 
     def predict(self, tokenized_inputs: BatchEncoding) -> torch.Tensor:
         with torch.no_grad():
@@ -189,7 +191,7 @@ class EvalWordImp(ConfigurableJob):
             file.write(config)
         logger.info(f"Started Word Importance evaluation job with this args:\n{config}")
 
-        ds = self.load_ds()
+        ds = load_ds()
         logger.info(ds)
 
         self.load_model()
@@ -244,5 +246,122 @@ class EvalWordImp(ConfigurableJob):
 
         with open(os.path.join(data_dir, "results.json"), "w") as f:
             json.dump(results, f, indent=4)
+
+        return
+
+
+@dataclass
+class EvalWordImpTFIDF(ConfigurableJob):
+    seed: int = 69
+    max_rank_limit: int | float = 0.1
+
+    job_version: str = "0.1"
+
+    @staticmethod
+    def get_terms(contexts: list[list[str]]) -> dict[str, int]:
+        terms = set(term for doc in contexts for term in doc)
+        terms = {term: i for i, term in enumerate(terms)}
+        return terms
+
+    @staticmethod
+    def get_idf(contexts: list[list[str]], terms: dict[str, int]) -> np.ndarray:
+        idf = np.zeros(len(terms))
+        for doc in contexts:
+            for term in set(doc):
+                idf[terms[term]] += 1
+        idf = np.log(len(contexts) / idf)
+        return idf
+
+    @staticmethod
+    def get_tf_idf(contexts: list[list[str]]) -> list[np.ndarray]:
+        terms = EvalWordImpTFIDF.get_terms(contexts)
+        idf = EvalWordImpTFIDF.get_idf(contexts, terms)
+
+        tfidf_weights = []
+
+        for doc in contexts:
+            counts = Counter(doc)
+            tfidf = np.zeros(len(doc))
+            for i, w in enumerate(doc):
+                if not is_prohibited_word(w):
+                    tfidf[i] = (counts[w] / len(doc)) * idf[terms[w]]
+            tfidf_weights.append(tfidf)
+
+        return tfidf_weights
+
+    def tfidf2ranks(self, tfidf: list[np.ndarray]) -> list[list[int]]:
+        sorted_words = [np.argsort(c)[::-1] for c in tfidf]
+        ranks = []
+
+        for sorted_doc_words in sorted_words:
+            limit = get_rank_limit(self.max_rank_limit, len(sorted_doc_words))
+            rank = np.ones(len(sorted_doc_words)) * (limit + 1)
+
+            for i, pos in enumerate(sorted_doc_words[:limit]):
+                rank[pos] = i + 1
+
+            ranks.append(rank)
+
+        return ranks
+
+    def run(self):
+        np.random.seed(self.seed)
+        random.seed(self.seed)
+
+        data_dir = os.path.join("./data/eval/", self.job_name)
+        os.makedirs(data_dir, exist_ok=True)
+
+        config = self.get_config()
+        with open(os.path.join(data_dir, "config.json"), "w") as file:
+            file.write(config)
+        logger.info(
+            f"Started TFIDF Word Importance evaluation job with this args:\n{config}"
+        )
+
+        ds = load_ds()
+        contexts = [[w.lower() for w in context] for context in ds["context"]]
+
+        labels = ds["label"]
+        labels = [rankdata(label, method="ordinal") for label in labels]
+        labels = RankingEvaluator.ignore_maximal(labels, rank_limit=self.max_rank_limit)
+
+        tfidf = EvalWordImpTFIDF.get_tf_idf(contexts)
+        ranks = self.tfidf2ranks(tfidf)
+
+        results = {}
+        results["name"] = "tf-idf"
+        logger.info(f"model : {results['name']}")
+
+        results["pearson"], p_vals = RankingEvaluator.mean_rank_correlation(
+            ranks, labels, "pearson"
+        )
+        results["pearson_pvalue"] = p_vals[0]
+        logger.info(f"pearson : {results['pearson']}")
+
+        results["kendall"], p_vals = RankingEvaluator.mean_rank_correlation(
+            ranks, labels, "kendall"
+        )
+        results["kendall_pvalue"] = p_vals[0]
+        logger.info(f"kendal : {results['kendall']}")
+
+        results["somers"] = RankingEvaluator.mean_rank_correlation(
+            ranks, labels, "somers"
+        )
+        logger.info(f"sommer : {results['somers']}")
+
+        for k in range(1, 6):
+            k_inter = f"{k}-inter"
+            results[k_inter] = RankingEvaluator.least_intersection(ranks, labels, k)
+            logger.info(f"{k_inter} : {results[k_inter]}")
+
+        results["avg_overlap"] = RankingEvaluator.avg_overlaps(
+            ranks, labels, self.max_rank_limit
+        )
+        logger.info(f"avg_overlap : {results['avg_overlap']}")
+
+        with open(os.path.join(data_dir, "results.json"), "w") as f:
+            json.dump(results, f, indent=4)
+
+        self.results = results
 
         return
