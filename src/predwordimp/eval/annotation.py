@@ -6,7 +6,7 @@ import numpy as np
 from predwordimp.eval.util import get_rank_limit
 
 
-def get_user_rankings(user_id, db) -> dict[Any, Any]:
+def get_user_rankings(user_id: int, db: str) -> dict[Any, Any]:
     conn = sqlite3.connect(db)
     cursor = conn.cursor()
 
@@ -31,7 +31,7 @@ def get_user_rankings(user_id, db) -> dict[Any, Any]:
     return user_rankings
 
 
-def get_len(task_id, db) -> int:
+def get_len(task_id: int, db: str) -> int:
     # Connect to the SQLite database
     conn = sqlite3.connect(db)
     cursor = conn.cursor()
@@ -55,7 +55,9 @@ def get_len(task_id, db) -> int:
     return len(task[0].split())
 
 
-def annot2rank(ranks, txt_len, last_rank_method="rank_limit") -> Any:
+def annot2rank(
+    ranks: dict[str, Any], txt_len: int, last_rank_method: str = "rank_limit"
+) -> np.ndarray:
     if last_rank_method == "rank_limit":
         label = np.ones(txt_len) * (get_rank_limit(0.1, txt_len) + 1)
     elif last_rank_method == "ordering_len":
@@ -66,5 +68,15 @@ def annot2rank(ranks, txt_len, last_rank_method="rank_limit") -> Any:
     for i, e in enumerate(ranks):
         pos = e["position"]
         label[pos] = i + 1
+
+    return label
+
+
+def annot2selection_target(ranks: dict[str, Any], txt_len: int) -> np.ndarray:
+    label = np.zeros(txt_len)
+
+    for i, e in enumerate(ranks):
+        pos = e["position"]
+        label[pos] = 1
 
     return label
