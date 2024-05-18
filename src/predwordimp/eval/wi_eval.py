@@ -20,6 +20,15 @@ logger = get_logger(__name__)
 
 
 def load_ds(domain: str = "") -> Dataset:
+    """
+    Load the dataset for evaluation.
+
+    Args:
+        domain (str, optional): The domain to filter the dataset by. Defaults to an empty string.
+
+    Returns:
+        Dataset: The loaded dataset.
+    """
     ds = load_dataset("adasgaleus/word-importance", split="test")
     if domain != "":
         ds = ds.filter(function=lambda sample: sample["domain"] == domain)
@@ -27,6 +36,16 @@ def load_ds(domain: str = "") -> Dataset:
 
 
 def is_prohibited_word(w: str) -> bool:
+    """
+    Word Importance Dataset have words for speaker tags. Human annotators could not select this words. So
+    for a good performance the models should ignere it too.
+
+    Args:
+        w (str): The word to check.
+
+    Returns:
+        bool: True if the word is prohibited, False otherwise.
+    """
     if w.startswith("(PERSON"):  # speaker tags
         return True
     return False
@@ -34,6 +53,18 @@ def is_prohibited_word(w: str) -> bool:
 
 @dataclass
 class EvalWordImp(ConfigurableJob):
+    """
+    A job class for evaluating models on Word Importance Dataset.
+
+    Attributes:
+        hf_model (str): The name or path of the pre-trained model to use.
+        seed (int): Random seed for reproducibility. Default is 69.
+        stride (int): Stride for tokenization. Default is 128.
+        max_rank_limit (int | float): Maximum rank limit, What percentage of words can get rank, others get the last rank. Default is 0.1.
+        domain (str): The domain to filter the dataset by. Emty means all the domains. Default is an empty string.
+        job_version (str): Version of the job for experiment tracking. Do not use.
+    """
+
     hf_model: str
     seed: int = 69
     stride: int = 128
@@ -63,6 +94,13 @@ class EvalWordImp(ConfigurableJob):
         return tokenized
 
     def set_prohibited(self, tokenized: BatchEncoding, ds: Dataset) -> None:
+        """
+        Create a mask for words that are prohibited to rank. (eg. speaker tags)
+
+        Args:
+            tokenized (BatchEncoding): The tokenized inputs.
+            ds (Dataset): The dataset containing the contexts.
+        """
         self.prohibited_word_ids = torch.zeros(tokenized.data["input_ids"].shape)
         for batch_idx, context in enumerate(ds["context"]):
             for word_idx, word in enumerate(context):
@@ -80,6 +118,18 @@ class EvalWordImp(ConfigurableJob):
     def get_ignore_mask(
         tokenized_inputs: BatchEncoding, prohibited: torch.Tensor
     ) -> torch.Tensor:
+        """
+        Get the mask for tokens that can not get the rank. When one word is tokenized into more intra-word
+        tokens then we need prediction only from the first token. Also ignore words from prohibited tensor.
+        This tensor can be used for ignoring speaker tags.
+
+        Args:
+            tokenized_inputs (BatchEncoding): The tokenized inputs.
+            prohibited (torch.Tensor): The tensor of prohibited word IDs.
+
+        Returns:
+            torch.Tensor: The ignore mask.
+        """
         subword_masks = []
 
         for batch_idx in range(tokenized_inputs.data["input_ids"].shape[0]):
@@ -106,6 +156,19 @@ class EvalWordImp(ConfigurableJob):
         tokenized_inputs: BatchEncoding,
         rank_limit: float | int,
     ) -> list[tuple[list[int], int]]:
+        """
+        From sorted token ids get sequence of word ids for word positions that do not get the last rank.
+        Example of Ordering is [6,8,3], where elements are word ids in original context from WIDS, other
+        word ids get the last rank equal to 4.
+
+        Args:
+            sorted_indices (torch.Tensor): The sorted indices of tokens.
+            tokenized_inputs (BatchEncoding): The tokenized inputs.
+            rank_limit (float | int): The maximum rank limit.
+
+        Returns:
+            list[tuple[list[int], int]]: The word orderings and number of words.
+        """
         rankings = []
 
         for batch_idx, pred in enumerate(sorted_indices):
@@ -139,6 +202,18 @@ class EvalWordImp(ConfigurableJob):
     def ordering2ranks(
         orderings: list[tuple[list[int], int]], rank_limit: float | int
     ) -> list[list[int]]:
+        """
+        Convert word orderings to ranks. Ordering is a sequence of word ids from the original context. From this we
+        create rankings, and ranking is simply an array of word importance ranks for respective word ids. word ids not in
+        the ordering sequence get the last rank.
+
+        Args:
+            orderings (list[tuple[list[int], int]]): The word orderings and number of words.
+            rank_limit (float | int): The maximum rank limit.
+
+        Returns:
+            list[list[int]]: The ranks.
+        """
         ranks = []
 
         for batch_idx, ordering_tuple in enumerate(orderings):
@@ -162,6 +237,18 @@ class EvalWordImp(ConfigurableJob):
         tokenized_inputs: BatchEncoding,
         rank_limit: float | int,
     ) -> list[list[int]]:
+        """
+        Convert logits to rankings. There must be handled that the model predicts on tokens and we want
+        ranking for a word positions in the original context.
+
+        Args:
+            logits (torch.Tensor): The prediction logits.
+            tokenized_inputs (BatchEncoding): The tokenized inputs.
+            rank_limit (float | int): The maximum rank limit.
+
+        Returns:
+            list[list[int]]: The ranks.
+        """
         logits = torch.softmax(logits, dim=-1)
         logits = logits * tokenized_inputs.data["attention_mask"][:, :, None]
         logits = logits[:, :, 0]  # keep prob of not inserted
@@ -256,6 +343,15 @@ class EvalWordImp(ConfigurableJob):
 
 @dataclass
 class EvalWordImpTFIDF(ConfigurableJob):
+    """
+    A job class for evaluating TF-IDF on WIDS.
+    
+    Attributes:
+        seed (int): Random seed for reproducibility. Default is 69.
+        max_rank_limit (int | float): Maximum rank limit for evaluation. Default is 0.1.
+        domain (str): The domain to filter the dataset by. Default is an empty string.
+        job_version (str): Version of the job for experiment tracking. Do not use.
+    """
     seed: int = 69
     max_rank_limit: int | float = 0.1
     domain: str = ""

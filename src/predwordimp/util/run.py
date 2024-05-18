@@ -14,6 +14,16 @@ job_classes: dict[str, type[ConfigurableJob]] = {
 }
 
 if __name__ == "__main__":
+    """
+    Main script for running jobs. Reads a configuration file in JSON format, 
+    instantiates the appropriate job class based on the configuration, and runs the job.
+
+    Usage:
+        python run.py <config_json_file>
+
+    Args:
+        config_json_file (str): Path to the configuration JSON file.
+    """
     if len(sys.argv) != 2:
         print("Usage: python run.py <config_json_file>")
         sys.exit(1)

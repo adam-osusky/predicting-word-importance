@@ -21,6 +21,21 @@ def generate_json_file(experiment_dir: str, experiment_name: str, domain: str) -
 
 
 if __name__ == "__main__":
+    """
+    Main entry point of the script. Iterates over directory containing directories
+    for experiments. One experiment have one dir. Runs the evaluation job on 
+    Word Importance Dataset (WIDS).
+
+    Usage:
+        python eval_dir.py <dir_with_models> [domain]
+
+    Args:
+        dir_with_models (str): Path to the directory containing experiment directories.
+        domain (str, optional): The domain of the WIDS to eval on. Default is an empty string.
+
+    Example:
+        python eval_dir.py models/ text-domain
+    """
     if len(sys.argv) not in [2, 3]:
         print("Usage: python eval_dir.py <dir_with_models> [domain]")
         sys.exit(1)

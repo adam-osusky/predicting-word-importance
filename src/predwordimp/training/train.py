@@ -25,6 +25,35 @@ MASK_VALUE = -100
 
 @dataclass
 class TrainJob(ConfigurableJob):
+    """
+    A job class for training a binary token classification model.
+
+    Attributes:
+        model (str): The name or path of the pre-trained model to use.
+        dataset_dir (str): Directory containing the datasets. It is expected that the dir is
+            result of `WikiTextDsJob`.
+        seed (int): Random seed for reproducibility. Default is 69.
+        job_version (str): For experiment tracking. Do not use.
+        num_proc (int): Number of processes to use for data loading. Default is 1.
+        hf_access_token (str | None): Hugging Face access token for model pushing. Default is None.
+        lr (float): Learning rate for the optimizer. Default is 2e-5.
+        batch_size (int): Batch size for training and evaluation. Default is 64.
+        epochs (int): Number of training epochs. Default is 1.
+        wd (float): Weight decay for the optimizer. Default is 0.0.
+        warmup_steps (int): Number of warmup steps for the learning rate scheduler. Default is 1000.
+        stride (int): Stride for tokenization too long contexts. Default is 128.
+        gradient_accumulation_steps (int): Number of steps to accumulate gradients. Default is 1.
+        logging_steps (int): Frequency of logging training progress. Default is 100.
+        save_steps (int): Frequency of saving the model checkpoint. Default is 500.
+        eval_steps (int): Frequency of evaluation during training. Default is 500.
+        save_strategy (str): Strategy for saving checkpoints. Default is "steps".
+        save_total_limit (int): Maximum number of checkpoints to keep. Default is 1.
+        seqeval (ClassVar[EvaluationModule]): Evaluation module for sequence evaluation.
+        id2label (ClassVar[dict[int, str]]): Mapping from label ID to label name.
+        label2id (ClassVar[dict[str, int]]): Mapping from label name to label ID.
+        label_list (ClassVar[list[str]]): List of label names.
+    """
+
     model: str
     dataset_dir: str
 
@@ -54,6 +83,15 @@ class TrainJob(ConfigurableJob):
 
     @classmethod
     def compute_metrics(cls, p) -> dict[str, float]:
+        """
+        Compute evaluation metrics for the predictions.
+
+        Args:
+            p: A tuple of predictions and labels.
+
+        Returns:
+            dict[str, float]: A dictionary containing precision, recall, F1 score, and accuracy.
+        """
         predictions, labels = p
         predictions = np.argmax(predictions, axis=2)
 
@@ -80,10 +118,20 @@ class TrainJob(ConfigurableJob):
             "accuracy": results["overall_accuracy"],
         }
 
-    def load_tokenizer(self):
+    def load_tokenizer(self) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(self.model)
 
-    def tokenize_and_align_labels(self, samples) -> BatchEncoding:
+    def tokenize_and_align_labels(self, samples: dict) -> BatchEncoding:
+        """
+        Tokenize input texts and align labels for token classification. If som word is tokenized into more
+        intra-word sub-tokens then compute loss only on the first token, others are masked.
+
+        Args:
+            samples: A batch of samples to tokenize and align labels. Assuming it has `words` and `target`.
+
+        Returns:
+            BatchEncoding: Tokenized inputs with aligned labels.
+        """
         tokenized_inputs = self.tokenizer(
             samples["words"],
             truncation=True,
