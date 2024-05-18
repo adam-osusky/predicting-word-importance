@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import json
 
 import nltk
 import numpy as np
@@ -21,19 +22,19 @@ class Candidate:
 
 @dataclass
 class KpeEvalJob(ConfigurableJob):
-    model_name_or_path: str
+    model_names_or_paths: list[str]
     dataset: str
 
     @staticmethod
     def get_candidate_pos(text: str) -> list[Candidate]:
         noun_phrases = []
-    #     grammar = r"""
-    # NP: {<DT>?<JJ>*<NN.*>+}   # Chunk sequences of DT, JJ, NN
-    #     {<NNP>+}            # Chunk sequences of NNP (Proper Nouns)
-    #     {<NN.*><NN.*>}          # Chunk sequences of NN NN (e.g., 'computer science')
-    #     {<DT>?<JJ>*<NN.*>+<CC><NN.*>+}    # Noun Phrases with Coordinating Conjunctions
-    #     {<NNP><NNP><NNP>*}            #(Sequences of Proper Nouns)
-    # """
+        #     grammar = r"""
+        # NP: {<DT>?<JJ>*<NN.*>+}   # Chunk sequences of DT, JJ, NN
+        #     {<NNP>+}            # Chunk sequences of NNP (Proper Nouns)
+        #     {<NN.*><NN.*>}          # Chunk sequences of NN NN (e.g., 'computer science')
+        #     {<DT>?<JJ>*<NN.*>+<CC><NN.*>+}    # Noun Phrases with Coordinating Conjunctions
+        #     {<NNP><NNP><NNP>*}            #(Sequences of Proper Nouns)
+        # """
         grammar = r"""
     NP: {<JJ>*<NN|NNS|NNP|NNPS>+}  # Adjectives (zero or more) followed by nouns (one or more)
     """
@@ -59,16 +60,31 @@ class KpeEvalJob(ConfigurableJob):
 
     @staticmethod
     def evaluate(top_N_keyphrases, references, cutoff=5):
-        P = len(set(top_N_keyphrases[:cutoff]) & set(references)) / len(
-            top_N_keyphrases[:cutoff]
-        ) if len(top_N_keyphrases) > 0 else 1
+        P = (
+            len(set(top_N_keyphrases[:cutoff]) & set(references))
+            / len(top_N_keyphrases[:cutoff])
+            if len(top_N_keyphrases) > 0
+            else 1
+        )
         R = len(set(top_N_keyphrases[:cutoff]) & set(references)) / len(set(references))
         F = (2 * P * R) / (P + R) if (P + R) > 0 else 0
         return (P, R, F)
 
     def run(self) -> None:
-        tokenizer = AutoTokenizer.from_pretrained(self.model_name_or_path)
-        model = AutoModelForTokenClassification.from_pretrained(self.model_name_or_path)
+        results = dict()
+        for model in self.model_names_or_paths:
+            name = model.split("/")[-1]
+            results[name] = self.eval_model(model)
+        
+        print(results)
+        print("="*10)
+        json_string = json.dumps(results, indent=4)
+        print(json_string)
+        
+
+    def eval_model(self, model_name_or_path) -> dict[str, float]:
+        tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+        model = AutoModelForTokenClassification.from_pretrained(model_name_or_path)
 
         dataset = load_dataset(self.dataset, split="test")
 
@@ -88,7 +104,6 @@ class KpeEvalJob(ConfigurableJob):
                 return_tensors="pt",
             )
             offsets = tokenized_inp.pop("offset_mapping")[0]
-            tokens = tokenized_inp.tokens()
             if tokenized_inp["input_ids"].shape[0] > 1:
                 raise ValueError("Too long inout text for the context size.")
 
@@ -106,7 +121,9 @@ class KpeEvalJob(ConfigurableJob):
                     if offset[0] >= candidate.start_pos
                     and offset[1] <= candidate.end_pos
                 ]
-                importance = preds[0, token_ids, 0].max(dim=0)
+                if token_ids == []:
+                    continue
+                importance = preds[0, token_ids, 0].mean()
                 candidate_importance.append((candidate.phrase, importance))
 
             ranked_candidates = sorted(candidate_importance, key=lambda x: x[1])
@@ -133,11 +150,19 @@ class KpeEvalJob(ConfigurableJob):
                 )
             references.append(reference)
 
-        for cutoff in [5, 10, 1000]:
+        results = dict()
+        # print(model_name_or_path)
+        for cutoff in [5, 10, 15]:
             scores = []
             for i, output in enumerate(model_outputs):
                 scores.append(KpeEvalJob.evaluate(output, references[i], cutoff))
 
-            # compute the average scores
             P, R, F = np.mean(scores, axis=0)
-            print(f"F@{cutoff}: F={F}, P={P}, R: {R}")
+            results[cutoff] = {
+                "P": P,
+                "R": R,
+                "F": F,
+            }
+            # print(f"F@{cutoff}: F={F}, P={P}, R: {R}")
+        
+        return results
