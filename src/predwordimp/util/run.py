@@ -3,6 +3,7 @@ import json
 import sys
 
 from predwordimp.data.dataset_job import WikiTextDsJob
+from predwordimp.eval.kpe import KpeEvalJob
 from predwordimp.eval.wi_eval import EvalWordImp
 from predwordimp.training.train import TrainJob
 from predwordimp.util.job import ConfigurableJob
@@ -11,6 +12,7 @@ job_classes: dict[str, type[ConfigurableJob]] = {
     "WikiTextDsJob": WikiTextDsJob,
     "TrainJob": TrainJob,
     "EvalWordImp": EvalWordImp,
+    "KpeEvalJob": KpeEvalJob,
 }
 
 if __name__ == "__main__":
