@@ -65,6 +65,7 @@ class KpeEvalJob(ConfigurableJob):
     split: str = "test"
     dataset_subset: str = "generation"
     output_dir_name: str | None = None
+    predictions = None
 
     @staticmethod
     def get_candidate_pos(text: str) -> list[Candidate]:
@@ -126,8 +127,9 @@ class KpeEvalJob(ConfigurableJob):
 
     def run(self) -> None:
         """Runs the keyphrase extraction evaluation job and saves the results as a json."""
+        self.predictions = dict()
         data_dir = os.path.join(
-            "./data/eval_kpe/",
+            "./data/kpe_vis/",
             self.output_dir_name if self.output_dir_name else self.job_name,
         )
         os.makedirs(data_dir, exist_ok=True)
@@ -145,11 +147,14 @@ class KpeEvalJob(ConfigurableJob):
 
         with open(os.path.join(data_dir, "results.json"), "w") as f:
             f.write(json.dumps(results, indent=4))
+        
+        with open(os.path.join(data_dir, "predictions.json"), "w") as f:
+            f.write(json.dumps(self.predictions, indent=4))
 
     @staticmethod
     def weight_candidates(
         text: str, preds: Any, offsets: Any, tensor: bool
-    ) -> list[str]:
+    ) -> list[tuple[str, float]]:
         """At first it extracts possible candidates according to `get_candidate_pos`.
         It computes the importance as a mazimum of the `preds` scores of the words in the phrase.
         Then it reorders the canditates according to this importance.
@@ -184,7 +189,7 @@ class KpeEvalJob(ConfigurableJob):
         ranked_candidates = sorted(
             candidate_importance, key=lambda x: x[1], reverse=True
         )
-        return [e[0] for e in ranked_candidates]
+        return ranked_candidates
 
     def load_dataset(self) -> tuple[list[str], list[str]]:
         """Loads the dataset for evaluation. It loads only extractive labels.
@@ -196,7 +201,7 @@ class KpeEvalJob(ConfigurableJob):
             dataset = load_dataset(
                 self.dataset, split=self.split, trust_remote_code=True
             )
-            # dataset = dataset.select(range(10))
+            dataset = dataset.select(range(3))
 
             test_texts = [
                 (sample["title"] + ". " + sample["abstract"])  # type: ignore
@@ -215,16 +220,15 @@ class KpeEvalJob(ConfigurableJob):
             dataset = load_dataset(
                 self.dataset, split=self.split, name=self.dataset_subset
             )
-            # dataset = dataset.select(range(10))
+            dataset = dataset.select(range(3))
 
             test_texts = [" ".join(sample["document"]) for sample in dataset]  # type: ignore
             labels = dataset["extractive_keyphrases"]  # type: ignore
 
         return test_texts, labels
 
-    @staticmethod
-    def align_preds(
-        predicted, labels: list[str]
+    def align_preds(self,
+        predicted, labels: list[str], model_name_or_path
     ) -> tuple[list[list[str]], list[list[str]]]:
         """Aligns predicted keyphrases with reference keyphrases with stemming and casing.
 
@@ -237,13 +241,18 @@ class KpeEvalJob(ConfigurableJob):
         """
         model_outputs = []
         references = []
+        self.predictions[model_name_or_path] = dict()
         for i, prediction in enumerate(predicted):
+            self.predictions[model_name_or_path][i] = dict()
+            self.predictions[model_name_or_path][i]["pred"] = []
+            self.predictions[model_name_or_path][i]["reference"] = []
             model_output = []
-            for keyphrase in prediction:
+            for keyphrase, wi in prediction:
                 toks = keyphrase.lower().split()
                 model_output.append(
                     " ".join([Stemmer("english").stem(tok) for tok in toks])
                 )
+                self.predictions[model_name_or_path][i]["pred"].append((keyphrase, wi.item()))
             model_outputs.append(model_output)
 
             reference = []
@@ -252,6 +261,7 @@ class KpeEvalJob(ConfigurableJob):
                 reference.append(
                     " ".join([Stemmer("english").stem(tok) for tok in toks])
                 )
+                self.predictions[model_name_or_path][i]["reference"].append(keyphrase)
             references.append(reference)
 
         return model_outputs, references
@@ -384,6 +394,6 @@ class KpeEvalJob(ConfigurableJob):
             )
             pbar.update()
 
-        model_outputs, references = KpeEvalJob.align_preds(predicted, labels)
+        model_outputs, references = self.align_preds(predicted, labels, model_name_or_path)
 
         return KpeEvalJob.eval_dict(model_outputs, references)
