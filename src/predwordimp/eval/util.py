@@ -11,6 +11,9 @@ def get_rank_limit(limit: int | float, length: int) -> int:
 
 
 def get_model_name(model_path: str, ds_dir: str = "data/metacentrum/wikitext") -> str:
+    if "adasgaleus" in model_path:
+        return model_path.split("/")[1]
+
     experiment_dir = os.path.dirname(model_path)
 
     with open(os.path.join(experiment_dir, "train_config.json")) as f:
