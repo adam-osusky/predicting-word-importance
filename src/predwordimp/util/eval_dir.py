@@ -14,6 +14,7 @@ def generate_json_file(experiment_dir: str, experiment_name: str, domain: str) -
         "max_rank_limit": MAX_RANK_LIMIT,
         "domain": domain,
         "seed": 69,
+        "infer_name": True,
     }
 
     with open(JSON_NAME, "w") as json_file:

@@ -70,6 +70,7 @@ class EvalWordImp(ConfigurableJob):
     stride: int = 128
     max_rank_limit: int | float = 0.1
     domain: str = ""
+    infer_name: bool = False
 
     job_version: str = "0.5"
 
@@ -307,7 +308,9 @@ class EvalWordImp(ConfigurableJob):
         logger.debug(labels[0])
 
         results = {}
-        results["name"] = get_model_name(self.hf_model)
+        results["name"] = (
+            get_model_name(self.hf_model) if self.infer_name else self.hf_model
+        )
         logger.info(f"model : {results['name']}")
 
         results["pearson"], p_vals = RankingEvaluator.mean_rank_correlation(
@@ -345,13 +348,14 @@ class EvalWordImp(ConfigurableJob):
 class EvalWordImpTFIDF(ConfigurableJob):
     """
     A job class for evaluating TF-IDF on WIDS.
-    
+
     Attributes:
         seed (int): Random seed for reproducibility. Default is 69.
         max_rank_limit (int | float): Maximum rank limit for evaluation. Default is 0.1.
         domain (str): The domain to filter the dataset by. Default is an empty string.
         job_version (str): Version of the job for experiment tracking. Do not use.
     """
+
     seed: int = 69
     max_rank_limit: int | float = 0.1
     domain: str = ""
