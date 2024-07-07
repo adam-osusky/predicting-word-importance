@@ -43,6 +43,19 @@ def load_wiki_ds(split: str) -> Dataset:
 
 @dataclass
 class WikiTextDsJob(ConfigurableJob):
+    """
+    A job configuration class for processing the WikiText-103 dataset and inserting words using different methods.
+
+    Attributes:
+        seed (int): Random seed for reproducibility. Default is 69.
+        num_proc (int | None): Number of processes to use. Default is None.
+        num_threads (int): Number of threads to use. Default is 1.
+        insert_rate (float): Rate of word insertion. Default is 0.5.
+        insert_model (str): Method for inserting words ("random" or a specific MLM model). Default is "random".
+        max_size (int | None): Maximum size of the dataset to process. Default is None.
+        debug (bool): Whether to run in debug mode. Default is False.
+    """
+
     seed: int = 69
     num_proc: int | None = None
     num_threads: int = 1
