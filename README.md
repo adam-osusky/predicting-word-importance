@@ -123,7 +123,7 @@ To reproduce the main evaluation results from the thesis, execute the following 
 ```sh
 python -m predwordimp.eval.reproduce.evaluate
 ```
-This command will download six BERT base models, which are the results of the thesis, and evaluate them on the [Word Importance Dataset](https://huggingface.co/datasets/adasgaleus/word-importance). Below are the results from the thesis:
+This command will download six BERT base models, which are the results of the thesis, and evaluate them on the [Word Importance Dataset](https://huggingface.co/datasets/adasgaleus/word-importance), and the output of all the evaluations is saved in `results.json`. Below are the results from the thesis:
 
 | Model      | Pearson | 1-inter | 2-inter | 3-inter | 4-inter | 5-inter | Overlap |
 |------------|---------|---------|---------|---------|---------|---------|---------|
